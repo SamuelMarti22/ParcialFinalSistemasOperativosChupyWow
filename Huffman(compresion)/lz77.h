@@ -58,6 +58,7 @@ enum TokenType : uint8_t {
     REFERENCE = 1   ///< Referencia a texto anterior
 };
 
+
 /**
  * @brief Estructura del Header (8 bytes)
  * 

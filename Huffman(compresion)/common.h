@@ -3,15 +3,28 @@
 #define COMMON_H
 
 #include <cstdint>
+#include <cstddef>
 #include <fstream>
+#include "lz77.h"  // ← IMPORTAR lz77.h para usar su TokenType
+
+// Ya NO definimos TokenType aquí porque viene de lz77.h
+// enum TokenType ya está definido en lz77.h
 
 // Estructura que representa un token de LZ77
+// Compatible con LZ77Token de lz77.h
 struct Token {
     uint8_t type;       // 0 = LITERAL, 1 = REFERENCE
-    uint16_t value;     // Si LITERAL: código ASCII del carácter
-                        // Si REFERENCE: longitud de la secuencia repetida
-    uint16_t distance;  // Si LITERAL: siempre 0
-                        // Si REFERENCE: cuántos bytes atrás está la secuencia
+    uint16_t value;
+    uint16_t distance;
+
+    // Constructores
+    Token() : type(LITERAL), value(0), distance(0) {}
+    
+    Token(uint8_t character) 
+        : type(LITERAL), value(character), distance(0) {}
+    
+    Token(uint16_t match_length, uint16_t match_distance)
+        : type(REFERENCE), value(match_length), distance(match_distance) {}
 
     // Escribir este token a un archivo binario
     void write_to(std::ofstream& file) const {
@@ -29,8 +42,7 @@ struct Token {
         return token;
     }
     
-    // Tamaño en bytes de cada token (para cálculos)
-    static constexpr size_t SIZE = sizeof(type) + sizeof(value) + sizeof(distance); // 5 bytes
+    static constexpr size_t SIZE = 5;
 };
 
 #endif

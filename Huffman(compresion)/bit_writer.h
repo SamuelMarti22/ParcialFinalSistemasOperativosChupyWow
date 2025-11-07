@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <cstddef>
 
 class BitWriter {
 private:
