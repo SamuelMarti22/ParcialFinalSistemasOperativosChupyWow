@@ -1,280 +1,133 @@
-// lz77.cpp
-
 #include "lz77.h"
-#include <algorithm>
+#include <cstring>
 
-// ============================================================================
-// CONSTRUCTOR Y MÉTODOS DE INICIALIZACIÓN
-// ============================================================================
+LZ77::Match LZ77::findLongestMatch(const uint8_t* input, size_t input_size) {
+    Match best(0,0);
+    if (window.empty() || cursor >= input_size) return best;
 
-LZ77::LZ77() : cursor(0) {
-    window.reserve(WINDOW_SIZE);
+    const size_t max_look = std::min(LOOKAHEAD_SIZE, input_size - cursor);
+    const size_t W = window.size();
+
+    for (size_t i = 0; i < W; ++i) {
+        size_t ml = 0;
+        while (ml < max_look && (i + ml) < W && window[i + ml] == input[cursor + ml]) {
+            ++ml;
+        }
+        if (ml > best.length) {
+            best.position = static_cast<uint16_t>(W - i); // distancia hacia atrás
+            best.length   = static_cast<uint16_t>(ml);
+            if (ml == max_look) break; // no se puede mejorar
+        }
+    }
+    return best;
 }
 
-void LZ77::reset() {
+// literal = 2 bytes: [0x00][literal]
+// referencia = 5 bytes: [0x01][len LE16][dist LE16]
+void LZ77::writeToken(const LZ77Token& t, std::vector<uint8_t>& out) {
+    if (t.type == LITERAL) {
+        out.push_back(LITERAL);
+        out.push_back(static_cast<uint8_t>(t.value & 0xFF));
+    } else {
+        out.push_back(REFERENCE);
+        uint8_t b[2];
+        u16le(t.value, b);     // len
+        out.insert(out.end(), b, b+2);
+        u16le(t.distance, b);  // dist
+        out.insert(out.end(), b, b+2);
+    }
+}
+
+LZ77::LZ77Token LZ77::readToken(const uint8_t* p, size_t remaining, size_t& consumed) {
+    LZ77Token t;
+    consumed = 0;
+    if (remaining == 0) return t;
+
+    t.type = p[0];
+
+    if (t.type == LITERAL) {
+        if (remaining < 2) return t; // corrupto
+        t.value = p[1];
+        t.distance = 0;
+        consumed = 2;
+    } else {
+        if (remaining < 5) return t; // corrupto
+        t.value    = leu16(p + 1); // len
+        t.distance = leu16(p + 3); // dist
+        consumed = 5;
+    }
+    return t;
+}
+
+std::vector<uint8_t> LZ77::compress(const std::vector<uint8_t>& input) {
+    std::vector<uint8_t> out;
     window.clear();
     cursor = 0;
+
+    const size_t N = input.size();
+    if (N == 0) return out;
+
+    auto push_window = [&](uint8_t byte){
+        window.push_back(byte);
+        if (window.size() > WINDOW_SIZE) window.pop_front();
+    };
+
+    while (cursor < N) {
+        // llenar ventana con lo anterior a cursor
+        // (en esta implementación la vamos manteniendo incrementalmente)
+        // No hay que hacer nada especial aquí.
+
+        // buscar mejor match
+        Match best = findLongestMatch(input.data(), N);
+
+        // decidimos referencia sólo si length >= MIN_MATCH_LEN
+        if (best.length >= MIN_MATCH_LEN) {
+            // emitir referencia
+            writeToken(LZ77Token(REFERENCE, best.length, best.position), out);
+            // y avanzar 'best.length' bytes llevando a ventana
+            for (size_t k = 0; k < best.length; ++k) {
+                push_window(input[cursor]);
+                ++cursor;
+                if (cursor >= N) break;
+            }
+        } else {
+            // emitir literal
+            writeToken(LZ77Token(LITERAL, input[cursor], 0), out);
+            push_window(input[cursor]);
+            ++cursor;
+        }
+    }
+
+    return out;
 }
 
-// ============================================================================
-// MÉTODOS PRIVADOS: BÚSQUEDA DE COINCIDENCIAS
-// ============================================================================
+std::vector<uint8_t> LZ77::decompress(const std::vector<uint8_t>& input) {
+    std::vector<uint8_t> out;
+    size_t p = 0;
+    const size_t N = input.size();
 
-Match LZ77::findLongestMatch(const uint8_t* input, size_t input_size) {
-    Match best_match(0, 0);
-    
-    // Si no hay datos en la ventana o no hay más input, no hay coincidencias
-    if (window.empty() || cursor >= input_size) {
-        return best_match;
-    }
-    
-    // Calcular cuántos bytes podemos mirar hacia adelante (lookahead buffer)
-    size_t max_lookahead = std::min(
-        static_cast<size_t>(LOOKAHEAD_SIZE),
-        input_size - cursor
-    );
-    
-    // Buscar en toda la ventana
-    size_t window_size = window.size();
-    
-    for (size_t i = 0; i < window_size; ++i) {
-        // Verificar cuántos caracteres consecutivos coinciden
-        size_t match_length = 0;
-        
-        // IMPORTANTE: Permitir coincidencias que se solapan
-        // Ejemplo: "aaaaa" donde la ventana tiene solo 1 'a' puede generar
-        // una coincidencia de longitud 4 copiando desde 1 byte atrás repetidamente
-        while (match_length < max_lookahead &&
-               input[cursor + match_length] == window[i + (match_length % (window_size - i))]) {
-            ++match_length;
-        }
-        
-        // Si encontramos una coincidencia mejor, actualizarla
-        if (match_length > best_match.length) {
-            // Calcular la distancia: desde el final de la ventana hasta la posición de coincidencia
-            best_match.position = static_cast<uint16_t>(window_size - i);
-            best_match.length = static_cast<uint16_t>(match_length);
-            
-            // Optimización: si alcanzamos el máximo posible, terminar búsqueda
-            if (match_length == max_lookahead) {
+    while (p < N) {
+        size_t consumed = 0;
+        LZ77Token t = readToken(&input[p], N - p, consumed);
+        if (consumed == 0) break; // corrupto o fin inesperado
+        p += consumed;
+
+        if (t.type == LITERAL) {
+            out.push_back(static_cast<uint8_t>(t.value & 0xFF));
+        } else { // REFERENCE
+            uint16_t len = t.value;
+            uint16_t dist = t.distance;
+            if (dist == 0 || len == 0 || dist > out.size()) {
+                // corrupto
                 break;
             }
-        }
-    }
-    
-    return best_match;
-}
-
-// ============================================================================
-// MÉTODOS PRIVADOS: GESTIÓN DE LA VENTANA
-// ============================================================================
-
-void LZ77::updateWindow(const uint8_t* data, size_t length) {
-    // Añadir los nuevos datos a la ventana
-    for (size_t i = 0; i < length; ++i) {
-        window.push_back(data[i]);
-    }
-    
-    // Si la ventana excede el tamaño máximo, eliminar del inicio
-    if (window.size() > WINDOW_SIZE) {
-        size_t excess = window.size() - WINDOW_SIZE;
-        window.erase(window.begin(), window.begin() + excess);
-    }
-}
-
-// ============================================================================
-// MÉTODOS PRIVADOS: LECTURA/ESCRITURA BINARIA
-// ============================================================================
-
-void LZ77::writeHeader(const LZ77Header& header, std::vector<uint8_t>& output) {
-    uint8_t buffer[8];
-    
-    // Escribir num_tokens (4 bytes, little-endian)
-    uint32ToLittleEndian(header.num_tokens, buffer);
-    
-    // Escribir original_size (4 bytes, little-endian)
-    uint32ToLittleEndian(header.original_size, buffer + 4);
-    
-    // Añadir al output
-    output.insert(output.end(), buffer, buffer + 8);
-}
-
-void LZ77::writeToken(const LZ77Token& token, std::vector<uint8_t>& output) {
-    uint8_t buffer[5];
-    
-    // Byte 0: tipo
-    buffer[0] = token.type;
-    
-    // Bytes 1-2: valor (little-endian)
-    uint16ToLittleEndian(token.value, buffer + 1);
-    
-    // Bytes 3-4: distancia (little-endian)
-    uint16ToLittleEndian(token.distance, buffer + 3);
-    
-    // Añadir al output
-    output.insert(output.end(), buffer, buffer + 5);
-}
-
-LZ77Header LZ77::readHeader(const uint8_t* data) {
-    LZ77Header header;
-    
-    // Leer num_tokens (bytes 0-3)
-    header.num_tokens = littleEndianToUint32(data);
-    
-    // Leer original_size (bytes 4-7)
-    header.original_size = littleEndianToUint32(data + 4);
-    
-    return header;
-}
-
-LZ77Token LZ77::readToken(const uint8_t* data) {
-    LZ77Token token;
-    
-    // Byte 0: tipo
-    token.type = data[0];
-    
-    // Bytes 1-2: valor
-    token.value = littleEndianToUint16(data + 1);
-    
-    // Bytes 3-4: distancia
-    token.distance = littleEndianToUint16(data + 3);
-    
-    return token;
-}
-
-// ============================================================================
-// MÉTODO PÚBLICO: COMPRESIÓN
-// ============================================================================
-
-bool LZ77::compress(const uint8_t* input, size_t input_size, 
-                    std::vector<uint8_t>& output) {
-    // Validar entrada
-    if (input == nullptr || input_size == 0) {
-        return false;
-    }
-    
-    // Reiniciar estado
-    reset();
-    
-    // Vector temporal para almacenar los tokens
-    std::vector<LZ77Token> tokens;
-    tokens.reserve(input_size); // Reservar memoria para evitar realocaciones
-    
-    // Procesar el input según el formato especificado
-    // Ejemplo: "hola hola" → [h][o][l][a][ ][REF(len=4,dist=5)]
-    while (cursor < input_size) {
-        // Buscar la coincidencia más larga en la ventana
-        Match match = findLongestMatch(input, input_size);
-        
-        // Si encontramos una coincidencia válida (>= MIN_MATCH_LENGTH)
-        if (match.isValid()) {
-            // Generar token REFERENCE con (longitud, distancia)
-            // distancia = cuántos bytes atrás está la coincidencia
-            tokens.emplace_back(match.length, match.position);
-            
-            // Actualizar ventana con los bytes de la coincidencia
-            updateWindow(input + cursor, match.length);
-            
-            // Avanzar cursor solo por la longitud de la coincidencia
-            cursor += match.length;
-            
-        } else {
-            // No hay coincidencia válida, generar token LITERAL
-            uint8_t current_char = input[cursor];
-            tokens.emplace_back(current_char);
-            
-            // Actualizar ventana con este carácter
-            updateWindow(input + cursor, 1);
-            
-            // Avanzar cursor 1 posición
-            cursor += 1;
-        }
-    }
-    
-    // Preparar el header
-    LZ77Header header(
-        static_cast<uint32_t>(tokens.size()),
-        static_cast<uint32_t>(input_size)
-    );
-    
-    // Escribir header (8 bytes)
-    writeHeader(header, output);
-    
-    // Escribir todos los tokens (5 bytes cada uno)
-    for (const auto& token : tokens) {
-        writeToken(token, output);
-    }
-    
-    return true;
-}
-
-// ============================================================================
-// MÉTODO PÚBLICO: DESCOMPRESIÓN
-// ============================================================================
-
-bool LZ77::decompress(const uint8_t* input, size_t input_size,
-                      std::vector<uint8_t>& output) {
-    // Validar que al menos tenemos el header (8 bytes)
-    if (input == nullptr || input_size < 8) {
-        return false;
-    }
-    
-    // Leer el header
-    LZ77Header header = readHeader(input);
-    
-    // Validar que el tamaño del archivo es consistente
-    size_t expected_size = 8 + (header.num_tokens * 5);
-    if (input_size < expected_size) {
-        return false;
-    }
-    
-    // Reservar espacio para el output
-    output.clear();
-    output.reserve(header.original_size);
-    
-    // Procesar cada token
-    const uint8_t* token_data = input + 8; // Saltar el header
-    
-    for (uint32_t i = 0; i < header.num_tokens; ++i) {
-        LZ77Token token = readToken(token_data);
-        token_data += 5; // Avanzar al siguiente token
-        
-        if (token.type == LITERAL) {
-            // Token LITERAL: añadir el carácter directamente
-            output.push_back(static_cast<uint8_t>(token.value));
-            
-        } else if (token.type == REFERENCE) {
-            // Token REFERENCE: copiar desde posición anterior
-            // distance indica cuántos bytes atrás está la coincidencia
-            // value indica cuántos bytes copiar
-            
-            size_t current_pos = output.size();
-            
-            // Validar que la distancia es válida
-            if (token.distance > current_pos) {
-                return false; // Error: referencia inválida
+            // copiar con posible solapamiento (desde out)
+            size_t start = out.size() - dist;
+            for (size_t i = 0; i < len; ++i) {
+                out.push_back(out[start + i]);
             }
-            
-            // Posición desde donde copiar
-            size_t copy_from = current_pos - token.distance;
-            
-            // Copiar byte por byte (importante para casos donde hay solapamiento)
-            // Ejemplo: "aaaaa" → 'a' + REF(4,1) donde se copia desde 1 byte atrás
-            // Esto permite copiar secuencias repetitivas que se expanden durante la copia
-            for (uint16_t j = 0; j < token.value; ++j) {
-                output.push_back(output[copy_from + j]);
-            }
-        } else {
-            // Tipo de token desconocido
-            return false;
         }
     }
-    
-    // Verificar que el tamaño descomprimido coincide con el esperado
-    if (output.size() != header.original_size) {
-        return false;
-    }
-    
-    return true;
-}
 
+    return out;
+}
