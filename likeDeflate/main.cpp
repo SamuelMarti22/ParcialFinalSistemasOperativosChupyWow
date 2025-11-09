@@ -6,32 +6,41 @@
 #include <iostream>
 #include <iomanip>
 #include <stdexcept>
+#include <filesystem>
+namespace fs = std::filesystem;
 
-#include "lz77.h"     // tu implementación
-#include "huffman.h"  // el Huffman canónico
+#include "lz77.h"    // tu implementación
+#include "huffman.h" // el Huffman canónico
 
 using namespace huff;
 
-static std::vector<uint8_t> readFile(const std::string& path) {
+static std::vector<uint8_t> readFile(const std::string &path)
+{
     std::ifstream f(path, std::ios::binary);
-    if (!f) throw std::runtime_error("No pude abrir: " + path);
+    if (!f)
+        throw std::runtime_error("No pude abrir: " + path);
     f.seekg(0, std::ios::end);
     std::streamoff sz = f.tellg();
     f.seekg(0, std::ios::beg);
-    if (sz < 0) throw std::runtime_error("Error leyendo tamaño: " + path);
+    if (sz < 0)
+        throw std::runtime_error("Error leyendo tamaño: " + path);
     std::vector<uint8_t> buf((size_t)sz);
-    if (sz > 0) f.read(reinterpret_cast<char*>(buf.data()), sz);
+    if (sz > 0)
+        f.read(reinterpret_cast<char *>(buf.data()), sz);
     return buf;
 }
 
-static void writeFile(const std::string& path, const std::vector<uint8_t>& data) {
+static void writeFile(const std::string &path, const std::vector<uint8_t> &data)
+{
     std::ofstream f(path, std::ios::binary);
-    if (!f) throw std::runtime_error("No pude crear: " + path);
+    if (!f)
+        throw std::runtime_error("No pude crear: " + path);
     if (!data.empty())
-        f.write(reinterpret_cast<const char*>(data.data()), (std::streamsize)data.size());
+        f.write(reinterpret_cast<const char *>(data.data()), (std::streamsize)data.size());
 }
 
-static inline double pct(std::size_t part, std::size_t whole) {
+static inline double pct(std::size_t part, std::size_t whole)
+{
     return whole == 0 ? 0.0 : 100.0 * (double)part / (double)whole;
 }
 
@@ -43,13 +52,14 @@ static void print_stats(std::size_t orig,
     using std::cout;
     cout << "\n── ESTADÍSTICAS FINALES ──\n";
     cout << std::fixed << std::setprecision(2);
-    cout << "Original:   " << std::setw(8) << orig  << " bytes  (" << std::setw(6) << 100.00   << "%)\n";
-    cout << "LZ77:       " << std::setw(8) << lzsz  << " bytes  (" << std::setw(6) << pct(lzsz,  orig)  << "%)\n";
-    cout << "Comprimido: " << std::setw(8) << compsz<< " bytes  (" << std::setw(6) << pct(compsz,orig) << "%)\n";
+    cout << "Original:   " << std::setw(8) << orig << " bytes  (" << std::setw(6) << 100.00 << "%)\n";
+    cout << "LZ77:       " << std::setw(8) << lzsz << " bytes  (" << std::setw(6) << pct(lzsz, orig) << "%)\n";
+    cout << "Comprimido: " << std::setw(8) << compsz << " bytes  (" << std::setw(6) << pct(compsz, orig) << "%)\n";
     cout << "Recuperado: " << std::setw(8) << recov << " bytes\n";
 }
 
-static void do_compress(const std::string& inPath, const std::string& outPath) {
+static void do_compress(const std::string &inPath, const std::string &outPath)
+{
     // 1) Leer original
     auto input = readFile(inPath);
     std::cout << "Leidos " << input.size() << " bytes de " << inPath << "\n";
@@ -57,7 +67,8 @@ static void do_compress(const std::string& inPath, const std::string& outPath) {
     // 2) LZ77 (tu clase)
     LZ77 lz;
     std::vector<uint8_t> lz77_bytes;
-    if (!lz.compress(input.data(), input.size(), lz77_bytes)) {
+    if (!lz.compress(input.data(), input.size(), lz77_bytes))
+    {
         throw std::runtime_error("Fallo LZ77::compress()");
     }
     std::cout << "LZ77 produjo " << lz77_bytes.size() << " bytes\n";
@@ -74,18 +85,21 @@ static void do_compress(const std::string& inPath, const std::string& outPath) {
 
     std::vector<uint8_t> restored;
     LZ77 lz2;
-    if (!lz2.decompress(lz77_back.data(), lz77_back.size(), restored)) {
+    if (!lz2.decompress(lz77_back.data(), lz77_back.size(), restored))
+    {
         throw std::runtime_error("Fallo LZ77::decompress() en verificación");
     }
 
     bool ok = (restored == input);
-    if (!ok) std::cerr << "AVISO: la verificación de integridad FALLÓ\n";
+    if (!ok)
+        std::cerr << "AVISO: la verificación de integridad FALLÓ\n";
 
     // 5) Estadísticas finales (como tu screenshot)
     print_stats(input.size(), lz77_bytes.size(), huff_blob.size(), restored.size());
 }
 
-static void do_decompress(const std::string& inPath, const std::string& outPath) {
+static void do_decompress(const std::string &inPath, const std::string &outPath)
+{
     // 1) Leer blob comprimido (.lz77huff)
     auto blob = readFile(inPath);
     std::cout << "Leidos " << blob.size() << " bytes de " << inPath << "\n";
@@ -98,7 +112,8 @@ static void do_decompress(const std::string& inPath, const std::string& outPath)
     // 3) LZ77 → bytes originales
     LZ77 lz;
     std::vector<uint8_t> restored;
-    if (!lz.decompress(lz77_bytes.data(), lz77_bytes.size(), restored)) {
+    if (!lz.decompress(lz77_bytes.data(), lz77_bytes.size(), restored))
+    {
         throw std::runtime_error("Fallo LZ77::decompress()");
     }
 
@@ -106,42 +121,52 @@ static void do_decompress(const std::string& inPath, const std::string& outPath)
     std::cout << "Restaurado en " << outPath << " (" << restored.size() << " bytes)\n";
 }
 
-int main() {
-    try {
-        while (true) {
+int main()
+{
+    try
+    {
+        while (true)
+        {
             std::cout << "\n=== Menu LZ77 + Huffman ===\n"
                       << "1) Comprimir archivo (con verificación y estadísticas)\n"
                       << "2) Descomprimir archivo\n"
                       << "0) Salir\n"
                       << "Seleccion: ";
             int op = -1;
-            if (!(std::cin >> op)) return 0;
-            if (op == 0) return 0;
+            if (!(std::cin >> op))
+                return 0;
+            if (op == 0)
+                return 0;
 
             std::string inPath, outPath;
-            switch (op) {
-                case 1: {
-                    std::cout << "Ruta del archivo a comprimir: ";
-                    std::cin >> inPath;
-                    std::cout << "Ruta de salida (.lz77huff): ";
-                    std::cin >> outPath;
-                    do_compress(inPath, outPath);
-                    break;
-                }
-                case 2: {
-                    std::cout << "Ruta del archivo .lz77huff: ";
-                    std::cin >> inPath;
-                    std::cout << "Ruta de salida del archivo restaurado: ";
-                    std::cin >> outPath;
-                    do_decompress(inPath, outPath);
-                    break;
-                }
-                default:
-                    std::cout << "Opción inválida.\n";
-                    break;
+            switch (op)
+            {
+            case 1:
+            {
+                std::cout << "Ruta del archivo a comprimir: ";
+                std::cin >> inPath;
+                const std::string forcedOut = fs::path(inPath).replace_extension(".chupy").string();
+
+                do_compress(inPath, forcedOut);
+                break;
+            }
+            case 2:
+            {
+                std::cout << "Ruta del archivo .lz77huff: ";
+                std::cin >> inPath;
+                std::cout << "Ruta de salida del archivo restaurado: ";
+                std::cin >> outPath;
+                do_decompress(inPath, outPath);
+                break;
+            }
+            default:
+                std::cout << "Opción inválida.\n";
+                break;
             }
         }
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception &e)
+    {
         std::cerr << "Error: " << e.what() << "\n";
         return 1;
     }
