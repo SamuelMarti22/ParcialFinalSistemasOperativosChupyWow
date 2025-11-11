@@ -1,0 +1,1 @@
+Archivo en subcarpeta con más contenido para probar compresión

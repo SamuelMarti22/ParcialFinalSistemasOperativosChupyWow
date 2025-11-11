@@ -12,6 +12,7 @@ namespace fs = std::filesystem;
 
 #include "lz77.h"    // tu implementación (LZ77::compress / decompress que devuelven vector)
 #include "huffman.h" // namespace huff, con encodeHuffmanStream / decodeHuffmanStream
+#include "deflate_interface.h" // Interfaz pública
 
 using namespace huff;
 
@@ -116,9 +117,20 @@ static void do_decompress(const std::string &inPath, const std::string &outPath)
     std::cout << "Restaurado en " << outPath << " (" << restored.size() << " bytes)\n";
 }
 
+// ------------------------- interfaz pública -------------------------
+
+void comprimirConDeflate(const std::string& archivoEntrada, const std::string& archivoSalida) {
+    const std::string salidaFinal = fs::path(archivoSalida).replace_extension(".chupy").string();
+    do_compress(archivoEntrada, salidaFinal);
+}
+
+void descomprimirConDeflate(const std::string& archivoEntrada, const std::string& archivoSalida) {
+    do_decompress(archivoEntrada, archivoSalida);
+}
+ 
 // ------------------------- menú principal -------------------------
 
-int main()
+int main_deflate_standalone()
 {
     try {
         while (true) {

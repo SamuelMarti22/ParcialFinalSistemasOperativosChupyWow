@@ -2,6 +2,8 @@
 #define COMANDOS_H
 
 #include <string>
+#include <vector>
+#include <cstdint>
 
 using namespace std;
 
@@ -28,5 +30,21 @@ Parametros leerYValidarComandos(int argc, char* argv[]);
 
 // Funciones auxiliares
 void mostrarAyuda();
+
+// Funciones de manejo de archivos con  POSIX
+vector<uint8_t> leerArchivoConSyscalls(const string& rutaArchivo);
+void escribirArchivoConSyscalls(const string& rutaArchivo, const vector<uint8_t>& datos);
+
+// Detecta si la entrada es archivo o carpeta, luego decide si usar likeDeflate o las funciones de carpeta
+void ejecutarOperacion(const Parametros& params);
+
+
+// Explora carpeta con syscalls POSIX, crea contenedor con todos los archivos, y llama a likeDeflate para comprimirlo
+// como likeDeflate comprime archivos individuales, el metodo maneja las carpetas completas
+void comprimirCarpeta(const string& carpetaEntrada, const string& carpetaSalida, const string& algoritmo);
+
+
+// Descomprime archivo .chupy usando likeDeflate, luego extrae contenedor y recrea estructura de carpetas con syscalls 
+void descomprimirCarpeta(const string& archivoEntrada, const string& carpetaSalida, const string& algoritmo);
 
 #endif
