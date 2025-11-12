@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <cstddef>
+#include <string>
 
 // Tamaños de clave y nonce
 #define CHACHA20_KEY_SIZE 32
@@ -32,5 +33,12 @@ void chacha20_xor(ChaCha20_Context *ctx,
 void chacha20_xor(ChaCha20_Context *ctx, const uint8_t *input, uint8_t *output, size_t len);
 void quarter_round(uint32_t *state, int a, int b, int c, int d);
 uint32_t rotl32(uint32_t x, uint32_t n);
+
+void chacha20_xor_file(const std::string& inputPath,
+                       const std::string& outputPath,
+                       const uint8_t key[CHACHA20_KEY_SIZE],
+                       const uint8_t nonce[CHACHA20_NONCE_SIZE],
+                       uint32_t counter);
+
 
 #endif // CHACHA20_H
