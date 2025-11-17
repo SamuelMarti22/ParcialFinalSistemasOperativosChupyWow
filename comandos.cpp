@@ -144,23 +144,21 @@ Parametros leerYValidarComandos(int argc, char* argv[]) {
     return params;
 }
 
-// Método --help
 void mostrarAyuda() {
-    cout << "Uso: compressor [OPERACIÓN] [ALGORITMOS] [ARCHIVOS]" << endl << endl;
-    cout << "OPERACIONES:" << endl;
-    cout << "  -c         Comprimir" << endl;
-    cout << "  -d         Descomprimir" << endl;
-    cout << "  -e         Encriptar" << endl;
-    cout << "  -u         Desencriptar" << endl;
-    cout << "  -ce        Comprimir y encriptar" << endl;
-    cout << "  -ud        Desencriptar y descomprimir" << endl << endl;
-    cout << "ALGORITMOS:" << endl;
-    cout << "  --comp-alg ALGORITMO    Algoritmo de compresión (lz77, huffman, deflate)" << endl;
-    cout << "  --enc-alg ALGORITMO     Algoritmo de encriptación" << endl << endl;
-    cout << "ARCHIVOS:" << endl;
-    cout << "  -i ARCHIVO         Archivo de entrada" << endl;
-    cout << "  -o ARCHIVO         Archivo de salida" << endl;
-    cout << "  -k CLAVE           Clave de encriptación" << endl << endl;
+    cout << "Uso: ./xxxx [opciones]\n" << endl;
+    cout << "Comandos:" << endl;
+    cout << "  -c         Comprimir archivo" << endl;
+    cout << "  -d         Descomprimir archivo" << endl;
+    cout << "  -e         Encriptar archivo" << endl;
+    cout << "  -u         Desencriptar archivo" << endl;
+    cout << "  -ce        Comprimir + Encriptar" << endl;
+    cout << "  -ud        Desencriptar + Descomprimir\n" << endl;
+
+    cout << "  -i <archivo>     Archivo de entrada" << endl;
+    cout << "  -o <archivo>     Archivo de salida" << endl;
+    cout << "  --comp-alg <x>   Algoritmo de compresión (ej: huffman)" << endl;
+    cout << "  --enc-alg <x>    Algoritmo de encriptación (ej: chacha20)" << endl;
+    cout << "  -k <clave>       Clave de encriptación\n" << endl;
 }
 
 // Función para leer archivos usando syscalls POSIX
@@ -170,8 +168,6 @@ vector<uint8_t> leerArchivoConSyscalls(const string& rutaArchivo) {
     if (fd == -1) {
         throw runtime_error("Error: No se pudo abrir el archivo para lectura: " + rutaArchivo + " (" + strerror(errno) + ")");
     }
-
-    // Obtener tamaño del archivo
     struct stat fileStat;
     if (fstat(fd, &fileStat) == -1) {
         close(fd);
@@ -192,27 +188,23 @@ vector<uint8_t> leerArchivoConSyscalls(const string& rutaArchivo) {
             throw runtime_error("Error: Fallo al leer el archivo: " + rutaArchivo + " (" + strerror(errno) + ")");
         }
         if (bytesLeidos == 0) {
-            break; // EOF
+            break; 
         }
         totalLeido += bytesLeidos;
     }
-
     close(fd);
-    buffer.resize(totalLeido); // Ajustar el tamaño real leído
+    buffer.resize(totalLeido);
 
     cout << "Archivo leído exitosamente: " << rutaArchivo << " (" << totalLeido << " bytes)" << endl;
     return buffer;
 }
 
-// Función para escribir archivos usando syscalls POSIX
+// Función para escribir archivos usando syscalls
 void escribirArchivoConSyscalls(const string& rutaArchivo, const vector<uint8_t>& datos) {
-    // Crear/abrir archivo para escritura (crear si no existe, truncar si existe)
     int fd = open(rutaArchivo.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd == -1) {
         throw runtime_error("Error: No se pudo abrir el archivo para escritura: " + rutaArchivo + " (" + strerror(errno) + ")");
     }
-
-    // Escribir datos
     ssize_t bytesEscritos = 0;
     ssize_t totalEscrito = 0;
     size_t dataSize = datos.size();
@@ -237,8 +229,7 @@ vector<ArchivoInfo> explorarCarpetaRecursivo(const string& carpetaBase, const st
     string rutaCompleta = carpetaBase;
     if (!carpetaActual.empty()) {
         rutaCompleta += "/" + carpetaActual;
-    }
-    
+    }   
     DIR* dir = opendir(rutaCompleta.c_str());
     if (dir == nullptr) {
         throw runtime_error("Error: No se pudo abrir la carpeta: " + rutaCompleta);
@@ -248,7 +239,6 @@ vector<ArchivoInfo> explorarCarpetaRecursivo(const string& carpetaBase, const st
     while ((entry = readdir(dir)) != nullptr) {
         string nombre = entry->d_name;
         
-        // Saltar . y ..
         if (nombre == "." || nombre == "..") continue;
         
         string rutaArchivoCompleta = rutaCompleta + "/" + nombre;
