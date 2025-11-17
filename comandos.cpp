@@ -1,7 +1,22 @@
 #include "comandos.h"
 #include <iostream>
-
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <stdexcept>
+#include <cstring>
+#include <iomanip>
+#include <cstdint>
+#include <dirent.h>
+#include <errno.h>
 using namespace std;
+
+// Estructura para información de archivos en el contenedor usado para carpetas
+struct ArchivoInfo {
+    string rutaRelativa;
+    vector<uint8_t> contenido;
+};
+
 
 // Método que convierte los argumentos de línea de comandos en una estructura Parametros
 // Parsea los argumentos sin validar
@@ -179,3 +194,62 @@ void mostrarAyuda() {
     cout << "  --enc-alg <x>    Algoritmo de encriptación (ej: chacha20)" << endl;
     cout << "  -k <clave>       Clave de encriptación\n" << endl;
 }
+
+// Función para leer archivos usando syscalls POSIX
+vector<uint8_t> leerArchivoConSyscalls(const string& rutaArchivo) {
+    // Abrir archivo para lectura
+    int fd = open(rutaArchivo.c_str(), O_RDONLY);
+    if (fd == -1) {
+        throw runtime_error(" No se pudo abrir el archivo para lectura: " + rutaArchivo + " (" + strerror(errno) + ")");
+    }
+    struct stat fileStat;
+    if (fstat(fd, &fileStat) == -1) {
+        close(fd);
+        throw runtime_error("No se pudo obtener información del archivo: " + rutaArchivo);
+    }
+
+    size_t fileSize = fileStat.st_size;
+    vector<uint8_t> buffer(fileSize);
+    ssize_t bytesLeidos = 0;
+    ssize_t totalLeido = 0;
+
+    while (totalLeido < static_cast<ssize_t>(fileSize)) {
+        bytesLeidos = read(fd, buffer.data() + totalLeido, fileSize - totalLeido);
+        if (bytesLeidos == -1) {
+            close(fd);
+            throw runtime_error("Error: Fallo al leer el archivo: " + rutaArchivo + " (" + strerror(errno) + ")");
+        }
+        if (bytesLeidos == 0) {
+            break; 
+        }
+        totalLeido += bytesLeidos;
+    }
+    close(fd);
+    buffer.resize(totalLeido);
+    cout << "Archivo leído exitosamente: " << rutaArchivo << " (" << totalLeido << " bytes)" << endl;
+    return buffer;
+}
+
+// Función para escribir archivos usando syscalls
+void escribirArchivoConSyscalls(const string& rutaArchivo, const vector<uint8_t>& datos) {
+    int fd = open(rutaArchivo.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd == -1) {
+        throw runtime_error("No se pudo abrir el archivo para escritura: " + rutaArchivo + " (" + strerror(errno) + ")");
+    }
+    ssize_t bytesEscritos = 0;
+    ssize_t totalEscrito = 0;
+    size_t dataSize = datos.size();
+
+    while (totalEscrito < static_cast<ssize_t>(dataSize)) {
+        bytesEscritos = write(fd, datos.data() + totalEscrito, dataSize - totalEscrito);
+        if (bytesEscritos == -1) {
+            close(fd);
+            throw runtime_error("Fallo al escribir el archivo: " + rutaArchivo + " (" + strerror(errno) + ")");
+        }
+        totalEscrito += bytesEscritos;
+    }
+
+    close(fd);
+    cout << "Archivo escrito exitosamente: " << rutaArchivo << " (" << datos.size() << " bytes)" << endl;
+}
+

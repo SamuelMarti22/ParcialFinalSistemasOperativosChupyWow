@@ -2,6 +2,8 @@
 #define COMANDOS_H
 
 #include <string>
+#include <vector>
+#include <cstdint>
 
 using namespace std;
 
@@ -28,5 +30,8 @@ Parametros leerYValidarComandos(int argc, char* argv[]);
 
 // Funciones auxiliares
 void mostrarAyuda();
+vector<uint8_t> leerArchivoConSyscalls(const string& rutaArchivo);
+void escribirArchivoConSyscalls(const string& rutaArchivo, const vector<uint8_t>& datos);
+
 
 #endif
