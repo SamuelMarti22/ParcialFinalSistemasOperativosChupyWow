@@ -222,10 +222,9 @@ void escribirArchivoConSyscalls(const string& rutaArchivo, const vector<uint8_t>
     cout << "Archivo escrito exitosamente: " << rutaArchivo << " (" << datos.size() << " bytes)" << endl;
 }
 
-// Aquí se explora la carpeta recursivamente y c obtienen todos los archivos
+// Explora la carpeta recursivamente y se obtienen todos los archivos
 vector<ArchivoInfo> explorarCarpetaRecursivo(const string& carpetaBase, const string& carpetaActual = "") {
     vector<ArchivoInfo> archivos;
-    
     string rutaCompleta = carpetaBase;
     if (!carpetaActual.empty()) {
         rutaCompleta += "/" + carpetaActual;
@@ -234,13 +233,11 @@ vector<ArchivoInfo> explorarCarpetaRecursivo(const string& carpetaBase, const st
     if (dir == nullptr) {
         throw runtime_error("Error: No se pudo abrir la carpeta: " + rutaCompleta);
     }
-    
     struct dirent* entry;
     while ((entry = readdir(dir)) != nullptr) {
         string nombre = entry->d_name;
         
         if (nombre == "." || nombre == "..") continue;
-        
         string rutaArchivoCompleta = rutaCompleta + "/" + nombre;
         string rutaRelativaArchivo = carpetaActual.empty() ? nombre : carpetaActual + "/" + nombre;
         
@@ -250,16 +247,14 @@ vector<ArchivoInfo> explorarCarpetaRecursivo(const string& carpetaBase, const st
             continue;
         }
         
-        if (S_ISREG(entryStat.st_mode)) {
-            // ES ARCHIVO entonces agregarlo
+        if (S_ISREG(entryStat.st_mode)) {    // ES ARCHIVO entonces agregarlo
             ArchivoInfo info;
             info.rutaRelativa = rutaRelativaArchivo;
             info.contenido = leerArchivoConSyscalls(rutaArchivoCompleta);
             archivos.push_back(info);
             cout << "  Agregado: " << rutaRelativaArchivo << " (" << info.contenido.size() << " bytes)" << endl;
             
-        } else if (S_ISDIR(entryStat.st_mode)) {
-            // ES SUBCARPETA  entonces  recursión
+        } else if (S_ISDIR(entryStat.st_mode)) {  // ES SUBCARPETA  entonces  recursión
             auto subArchivos = explorarCarpetaRecursivo(carpetaBase, rutaRelativaArchivo);
             archivos.insert(archivos.end(), subArchivos.begin(), subArchivos.end());
         }
@@ -293,7 +288,6 @@ vector<uint8_t> crearContenedor(const vector<ArchivoInfo>& archivos) {
         for (char c : archivo.rutaRelativa) {
             contenedor.push_back(static_cast<uint8_t>(c));
         }
-        
         // Tamaño del contenido 
         uint32_t tamanoContenido = static_cast<uint32_t>(archivo.contenido.size());
         contenedor.push_back((tamanoContenido >> 24) & 0xFF);
@@ -311,16 +305,10 @@ vector<uint8_t> crearContenedor(const vector<ArchivoInfo>& archivos) {
 // Función para parsear el contenedor para el momento de descomprimir
 vector<ArchivoInfo> parsearContenedor(const vector<uint8_t>& contenedor) {
     vector<ArchivoInfo> archivos;
-    
     if (contenedor.size() < 4) {
         throw runtime_error("Error: Contenedor demasiado pequeño");
     }
-
-    uint32_t numArchivos = (static_cast<uint32_t>(contenedor[0]) << 24) |
-                          (static_cast<uint32_t>(contenedor[1]) << 16) |
-                          (static_cast<uint32_t>(contenedor[2]) << 8) |
-                          static_cast<uint32_t>(contenedor[3]);
-    
+    uint32_t numArchivos = (static_cast<uint32_t>(contenedor[0]) << 24) |(static_cast<uint32_t>(contenedor[1]) << 16) |(static_cast<uint32_t>(contenedor[2]) << 8) | static_cast<uint32_t>(contenedor[3]);
     size_t offset = 4;
    
     for (uint32_t i = 0; i < numArchivos; ++i) {
@@ -329,10 +317,7 @@ vector<ArchivoInfo> parsearContenedor(const vector<uint8_t>& contenedor) {
         }
         
         // Leer tamaño del nombre
-        uint32_t tamanoNombre = (static_cast<uint32_t>(contenedor[offset]) << 24) |
-                               (static_cast<uint32_t>(contenedor[offset + 1]) << 16) |
-                               (static_cast<uint32_t>(contenedor[offset + 2]) << 8) |
-                               static_cast<uint32_t>(contenedor[offset + 3]);
+        uint32_t tamanoNombre = (static_cast<uint32_t>(contenedor[offset]) << 24) | (static_cast<uint32_t>(contenedor[offset + 1]) << 16) | (static_cast<uint32_t>(contenedor[offset + 2]) << 8) | static_cast<uint32_t>(contenedor[offset + 3]);
         offset += 4;
         
         if (offset + tamanoNombre > contenedor.size()) {
@@ -348,10 +333,7 @@ vector<ArchivoInfo> parsearContenedor(const vector<uint8_t>& contenedor) {
         }
         
         // Leer tamaño del contenido
-        uint32_t tamanoContenido = (static_cast<uint32_t>(contenedor[offset]) << 24) |
-                                  (static_cast<uint32_t>(contenedor[offset + 1]) << 16) |
-                                  (static_cast<uint32_t>(contenedor[offset + 2]) << 8) |
-                                  static_cast<uint32_t>(contenedor[offset + 3]);
+        uint32_t tamanoContenido = (static_cast<uint32_t>(contenedor[offset]) << 24) | (static_cast<uint32_t>(contenedor[offset + 1]) << 16) | (static_cast<uint32_t>(contenedor[offset + 2]) << 8) | static_cast<uint32_t>(contenedor[offset + 3]);
         offset += 4;
         
         if (offset + tamanoContenido > contenedor.size()) {
@@ -368,7 +350,6 @@ vector<ArchivoInfo> parsearContenedor(const vector<uint8_t>& contenedor) {
         info.contenido = contenido;
         archivos.push_back(info);
     }
-    
     return archivos;
 }
 
@@ -377,11 +358,8 @@ void crearEstructuraCarpetas(const string& rutaBase, const string& rutaArchivo) 
     size_t pos = rutaArchivo.find_last_of('/');
     if (pos != string::npos) {
         string carpetaParent = rutaBase + "/" + rutaArchivo.substr(0, pos);
-        
-        // Crear carpetas recursivamente
-        string carpetaAcumulada = rutaBase;
+        string carpetaAcumulada = rutaBase;   // Crear carpetas recursivamente
         string subcarpeta = rutaArchivo.substr(0, pos);
-        
         size_t inicio = 0;
         while (inicio < subcarpeta.size()) {
             size_t siguiente = subcarpeta.find('/', inicio);
@@ -400,10 +378,7 @@ void crearEstructuraCarpetas(const string& rutaBase, const string& rutaArchivo) 
 
 void comprimirCarpeta(const string& carpetaEntrada, const string& carpetaSalida, const string& algoritmo) {
     cout << "Comprimiendo carpeta: " << carpetaEntrada << " -> " << carpetaSalida << endl;
-    cout << "Algoritmo: " << algoritmo << " (modo contenedor)" << endl;
-    
     // Explorar carpeta y obtener todos los archivos
-    cout << "Explorando estructura de carpetas..." << endl;
     vector<ArchivoInfo> archivos = explorarCarpetaRecursivo(carpetaEntrada);
     
     if (archivos.empty()) {
@@ -416,8 +391,7 @@ void comprimirCarpeta(const string& carpetaEntrada, const string& carpetaSalida,
     vector<uint8_t> contenedor = crearContenedor(archivos);
     cout << "Contenedor creado (" << contenedor.size() << " bytes)" << endl;
     
-    // contenedor temporal y comprimirlo con deflate
-    cout << "Comprimiendo contenedor con " << algoritmo << "..." << endl;
+    // contenedor temporal y comprimirlo con deflate -> llamar a la interfaz
     string contenedorTemp = carpetaSalida + "_temp.bin";
     escribirArchivoConSyscalls(contenedorTemp, contenedor);
     
@@ -473,10 +447,7 @@ void ejecutarOperacion(const Parametros& params) {
         }
 
         // Mira si es carpeta comprimida para descomprimir
-        bool esCarpetaComprimida = S_ISREG(entryStat.st_mode) && 
-                                  params.entrada.find(".chupy") != string::npos &&
-                                  (params.descomprimir || params.desencriptarYDescomprimir) &&
-                                  params.salida.find(".") == string::npos;
+        bool esCarpetaComprimida = S_ISREG(entryStat.st_mode) &&  params.entrada.find(".chupy") != string::npos && (params.descomprimir || params.desencriptarYDescomprimir) && params.salida.find(".") == string::npos;
 
         if (esCarpetaComprimida) {
             cout << "Detectado: archivo de carpeta comprimida" << endl;
