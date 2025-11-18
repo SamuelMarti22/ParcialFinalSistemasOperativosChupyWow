@@ -115,6 +115,16 @@ static void do_decompress(const std::string &inPath, const std::string &outPath)
     writeFile(outPath, restored);
     std::cout << "Restaurado en " << outPath << " (" << restored.size() << " bytes)\n";
 }
+// ------------------------- interfaz pública temporal  -------------------------
+
+void comprimirConDeflate(const std::string& archivoEntrada, const std::string& archivoSalida) {
+    const std::string salidaFinal = fs::path(archivoSalida).replace_extension(".chupy").string();
+    do_compress(archivoEntrada, salidaFinal);
+}
+
+void descomprimirConDeflate(const std::string& archivoEntrada, const std::string& archivoSalida) {
+    do_decompress(archivoEntrada, archivoSalida);
+}
 
 // ------------------------- menú principal -------------------------
 
