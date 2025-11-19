@@ -127,8 +127,8 @@ void descomprimirConDeflate(const std::string& archivoEntrada, const std::string
 }
 
 // ------------------------- menú principal -------------------------
-
-int main()
+//mientras para que permita tener 2 mains
+int menu_standalone()   
 {
     try {
         while (true) {
