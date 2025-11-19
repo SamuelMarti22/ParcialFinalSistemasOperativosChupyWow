@@ -14,26 +14,47 @@ LZ77::Match LZ77::findLongestMatch(const uint8_t* input, size_t input_size) {
             ++ml;
         }
         if (ml > best.length) {
-            best.position = static_cast<uint16_t>(W - i); // distancia hacia atrás
+            best.position = static_cast<uint16_t>(W - i);
             best.length   = static_cast<uint16_t>(ml);
-            if (ml == max_look) break; // no se puede mejorar
+            if (ml == max_look) break;
         }
     }
     return best;
 }
 
-// literal = 2 bytes: [0x00][literal]
-// referencia = 5 bytes: [0x01][len LE16][dist LE16]
+// ==================== FORMATO  ====================
+// LITERAL directo (1 byte):
+//   - Si byte está en rango 0x00-0x7F (0-127): se escribe directamente
+//   - Si byte está en rango 0x80-0xFF (128-255): [0xFF][byte] (2 bytes)
+//
+// REFERENCIA (5 bytes): [0x80-0xFE][len_low][len_high][dist_low][dist_high]
+//   - Marcador 0x80-0xFE indica que es referencia
+//   - len y dist en little-endian de 16 bits
+// ==================================================================
+
 void LZ77::writeToken(const LZ77Token& t, std::vector<uint8_t>& out) {
     if (t.type == LITERAL) {
-        out.push_back(LITERAL);
-        out.push_back(static_cast<uint8_t>(t.value & 0xFF));
+        uint8_t byte = static_cast<uint8_t>(t.value & 0xFF);
+        
+        if (byte < 0x80) {
+            // Literal en rango 0-127: escribe directo (1 byte)
+            out.push_back(byte);
+        } else {
+            // Literal >= 128: necesita escape (2 bytes)
+            out.push_back(0xFF);  // Marcador de escape
+            out.push_back(byte);
+        }
     } else {
-        out.push_back(REFERENCE);
+        // REFERENCIA: usa marcador 0x80 + longitud y distancia
+        out.push_back(0x80);  // Marcador de referencia
+        
+        // Escribir length (16 bits little-endian)
         uint8_t b[2];
-        u16le(t.value, b);     // len
+        u16le(t.value, b);
         out.insert(out.end(), b, b+2);
-        u16le(t.distance, b);  // dist
+        
+        // Escribir distance (16 bits little-endian)
+        u16le(t.distance, b);
         out.insert(out.end(), b, b+2);
     }
 }
@@ -43,19 +64,32 @@ LZ77::LZ77Token LZ77::readToken(const uint8_t* p, size_t remaining, size_t& cons
     consumed = 0;
     if (remaining == 0) return t;
 
-    t.type = p[0];
-
-    if (t.type == LITERAL) {
+    uint8_t first = p[0];
+    
+    if (first < 0x80) {
+        // Literal directo en rango 0-127
+        t.type = LITERAL;
+        t.value = first;
+        t.distance = 0;
+        consumed = 1;
+    } 
+    else if (first == 0xFF) {
+        // Literal con escape (>=128)
         if (remaining < 2) return t; // corrupto
+        t.type = LITERAL;
         t.value = p[1];
         t.distance = 0;
         consumed = 2;
-    } else {
+    } 
+    else {
+        // Referencia (0x80-0xFE)
         if (remaining < 5) return t; // corrupto
-        t.value    = leu16(p + 1); // len
-        t.distance = leu16(p + 3); // dist
+        t.type = REFERENCE;
+        t.value = leu16(p + 1);    // length
+        t.distance = leu16(p + 3); // distance
         consumed = 5;
     }
+    
     return t;
 }
 
@@ -73,25 +107,35 @@ std::vector<uint8_t> LZ77::compress(const std::vector<uint8_t>& input) {
     };
 
     while (cursor < N) {
-        // llenar ventana con lo anterior a cursor
-        // (en esta implementación la vamos manteniendo incrementalmente)
-        // No hay que hacer nada especial aquí.
-
-        // buscar mejor match
         Match best = findLongestMatch(input.data(), N);
-
-        // decidimos referencia sólo si length >= MIN_MATCH_LEN
+        
+        // Solo usar referencia si ahorra bytes
         if (best.length >= MIN_MATCH_LEN) {
-            // emitir referencia
-            writeToken(LZ77Token(REFERENCE, best.length, best.position), out);
-            // y avanzar 'best.length' bytes llevando a ventana
-            for (size_t k = 0; k < best.length; ++k) {
+            // Calcular costo de usar literales vs referencia
+            int literal_total_cost = 0;
+            for (size_t i = 0; i < best.length; ++i) {
+                uint8_t byte = input[cursor + i];
+                literal_total_cost += (byte < 0x80) ? 1 : 2;
+            }
+            
+            int reference_cost = 5;
+            
+            // Solo usar referencia si es más eficiente
+            if (reference_cost < literal_total_cost) {
+                writeToken(LZ77Token(REFERENCE, best.length, best.position), out);
+                for (size_t k = 0; k < best.length; ++k) {
+                    push_window(input[cursor]);
+                    ++cursor;
+                    if (cursor >= N) break;
+                }
+            } else {
+                // Referencia no vale la pena, usar literal
+                writeToken(LZ77Token(LITERAL, input[cursor], 0), out);
                 push_window(input[cursor]);
                 ++cursor;
-                if (cursor >= N) break;
             }
         } else {
-            // emitir literal
+            // Match muy corto, usar literal
             writeToken(LZ77Token(LITERAL, input[cursor], 0), out);
             push_window(input[cursor]);
             ++cursor;
@@ -109,7 +153,7 @@ std::vector<uint8_t> LZ77::decompress(const std::vector<uint8_t>& input) {
     while (p < N) {
         size_t consumed = 0;
         LZ77Token t = readToken(&input[p], N - p, consumed);
-        if (consumed == 0) break; // corrupto o fin inesperado
+        if (consumed == 0) break;
         p += consumed;
 
         if (t.type == LITERAL) {
@@ -118,10 +162,8 @@ std::vector<uint8_t> LZ77::decompress(const std::vector<uint8_t>& input) {
             uint16_t len = t.value;
             uint16_t dist = t.distance;
             if (dist == 0 || len == 0 || dist > out.size()) {
-                // corrupto
-                break;
+                break; // corrupto
             }
-            // copiar con posible solapamiento (desde out)
             size_t start = out.size() - dist;
             for (size_t i = 0; i < len; ++i) {
                 out.push_back(out[start + i]);

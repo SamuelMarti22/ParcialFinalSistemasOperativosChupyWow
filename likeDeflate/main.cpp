@@ -12,6 +12,7 @@ namespace fs = std::filesystem;
 
 #include "lz77.h"    // tu implementación (LZ77::compress / decompress que devuelven vector)
 #include "huffman.h" // namespace huff, con encodeHuffmanStream / decodeHuffmanStream
+#include "chupy_header.h"
 
 using namespace huff;
 
@@ -70,6 +71,11 @@ static void do_compress(const std::string &inPath, const std::string &outPath)
     // 1) Leer original
     auto input = readFile(inPath);
     std::cout << "Leídos " << input.size() << " bytes de " << inPath << "\n";
+    
+    // Extraer la extensión original
+    fs::path p(inPath);
+    std::string original_ext = p.extension().string();
+    std::cout << "Extensión original: " << (original_ext.empty() ? "(sin extensión)" : original_ext) << "\n";
 
     // 2) LZ77
     LZ77 lz;
@@ -80,11 +86,19 @@ static void do_compress(const std::string &inPath, const std::string &outPath)
     std::vector<uint32_t> syms(lz77_bytes.begin(), lz77_bytes.end());
     auto huff_blob = encodeHuffmanStream(syms, /*alphabetSize=*/256, /*maxCodeLen=*/15);
 
-    // 4) Escribir .chupy
-    writeFile(outPath, huff_blob);
-    std::cout << "Escrito " << outPath << " (" << huff_blob.size() << " bytes)\n";
+    // 4) Crear archivo .chupy con header (SOLO extensión)
+    auto final_output = chupy::createChupyFile(
+        original_ext,
+        huff_blob
+    );
 
-    // 5) Verificación rápida en memoria + stats
+    // 5) Escribir .chupy
+    writeFile(outPath, final_output);
+    std::cout << "Escrito " << outPath << " (" << final_output.size() << " bytes)\n";
+    std::cout << "  - Header: " << sizeof(chupy::ChupyHeader) << " bytes\n";
+    std::cout << "  - Datos: " << huff_blob.size() << " bytes\n";
+
+    // 6) Verificación rápida en memoria + stats
     auto back_syms = decodeHuffmanStream(huff_blob.data(), huff_blob.size());
     std::vector<uint8_t> lz77_back(back_syms.begin(), back_syms.end());
 
@@ -95,7 +109,7 @@ static void do_compress(const std::string &inPath, const std::string &outPath)
         std::cerr << "AVISO: la verificación de integridad FALLÓ\n";
     }
 
-    print_stats(input.size(), lz77_bytes.size(), huff_blob.size(), restored.size());
+    print_stats(input.size(), lz77_bytes.size(), final_output.size(), restored.size());
 }
 
 // ------------------------- descompresión -------------------------
@@ -104,17 +118,53 @@ static void do_decompress(const std::string &inPath, const std::string &outPath)
 {
     auto blob = readFile(inPath);
     std::cout << "Leídos " << blob.size() << " bytes de " << inPath << "\n";
-
-    auto syms = decodeHuffmanStream(blob.data(), blob.size());
+    
+    // 1) Leer y validar archivo .chupy
+    auto chupy_file = chupy::readChupyFile(blob);
+    
+    if (!chupy_file.valid) {
+        throw std::runtime_error("Archivo no es un .chupy válido (magic number incorrecto o corrupto)");
+    }
+    
+    const auto& header = chupy_file.header;
+    
+    std::cout << "\n✓ Header válido detectado:\n";
+    std::cout << "  - Versión: " << header.version << "\n";
+    std::cout << "  - Extensión original: " << (header.getExtension().empty() ? "(sin extensión)" : header.getExtension()) << "\n\n";
+    
+    // 2) Decodificar Huffman
+    auto syms = decodeHuffmanStream(
+        chupy_file.compressed_data.data(),
+        chupy_file.compressed_data.size()
+    );
     std::vector<uint8_t> lz77_bytes(syms.begin(), syms.end());
     std::cout << "Huffman decodificó " << lz77_bytes.size() << " bytes (stream LZ77)\n";
 
+    // 3) Descomprimir LZ77
     LZ77 lz;
     std::vector<uint8_t> restored = lz.decompress(lz77_bytes);
 
-    writeFile(outPath, restored);
-    std::cout << "Restaurado en " << outPath << " (" << restored.size() << " bytes)\n";
+    // 4) Determinar nombre de salida automático
+    std::string final_output_path = outPath;
+    
+    if (final_output_path.empty()) {
+        // Generar automáticamente: archivo_restored.ext
+        fs::path p(inPath);
+        final_output_path = p.stem().string() + "_restored" + header.getExtension();
+    } else {
+        // Si el usuario dio un path pero sin extensión, agregar la original
+        fs::path p(final_output_path);
+        if (p.extension().empty() && !header.getExtension().empty()) {
+            final_output_path += header.getExtension();
+        }
+    }
+    
+    // 5) Escribir archivo restaurado
+    writeFile(final_output_path, restored);
+    std::cout << "Restaurado en " << final_output_path << " (" << restored.size() << " bytes)\n";
+    std::cout << "✓ Descompresión completada\n";
 }
+
 // ------------------------- interfaz pública temporal  -------------------------
 
 void comprimirConDeflate(const std::string& archivoEntrada, const std::string& archivoSalida) {
@@ -132,8 +182,8 @@ int main()
 {
     try {
         while (true) {
-            std::cout << "\n=== Menu LZ77 + Huffman ===\n"
-                      << "1) Comprimir archivo (con verificación y estadísticas)\n"
+            std::cout << "\n=== Menu LZ77 + Huffman (formato .chupy) ===\n"
+                      << "1) Comprimir archivo\n"
                       << "2) Descomprimir archivo\n"
                       << "0) Salir\n"
                       << "Selección: ";
@@ -156,8 +206,10 @@ int main()
             case 2: {
                 std::cout << "Ruta del archivo .chupy: ";
                 std::cin >> inPath;
-                std::cout << "Ruta de salida del archivo restaurado: ";
-                std::cin >> outPath;
+                std::cout << "Ruta de salida (Enter para automático): ";
+                std::cin.ignore();
+                std::getline(std::cin, outPath);
+                
                 do_decompress(inPath, outPath);
                 break;
             }
@@ -167,7 +219,7 @@ int main()
             }
         }
     } catch (const std::exception &e) {
-        std::cerr << "Error: " << e.what() << "\n";
+        std::cerr << "\n❌ Error: " << e.what() << "\n";
         return 1;
     }
 }

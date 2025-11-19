@@ -1,0 +1,22 @@
+La programación es el arte de decirle a una computadora exactamente qué hacer.
+La programación requiere lógica, paciencia y creatividad.
+Los programadores escriben código en diferentes lenguajes de programación.
+Los lenguajes de programación más populares son Python, Java, C++ y JavaScript.
+Python es excelente para principiantes porque tiene una sintaxis clara.
+Java se usa mucho en aplicaciones empresariales y Android.
+C++ es muy rápido y se usa en videojuegos y sistemas operativos.
+JavaScript es el lenguaje de la web y funciona en todos los navegadores.
+
+La comprensión de algoritmos es fundamental para la programación.
+Un algoritmo es una serie de pasos para resolver un problema.
+Los algoritmos pueden ser simples o muy complejos.
+La eficiencia de un algoritmo se mide en tiempo y espacio.
+
+Las estructuras de datos son formas de organizar información.
+Arrays, listas, pilas, colas, árboles y grafos son estructuras comunes.
+Elegir la estructura de datos correcta hace el código más eficiente.
+
+La programación es el arte de decirle a una computadora exactamente qué hacer.
+Los programadores escriben código en diferentes lenguajes de programación.
+Python es excelente para principiantes porque tiene una sintaxis clara.
+La comprensión de algoritmos es fundamental para la programación.
