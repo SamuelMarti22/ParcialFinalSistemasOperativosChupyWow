@@ -410,7 +410,14 @@ void crearEstructuraCarpetas(const string& rutaBase, const string& rutaArchivo) 
 }
 
 void comprimirCarpeta(const string& carpetaEntrada, const string& carpetaSalida, const string& algoritmo) {
+    string algoritmoUsado;
+    if (algoritmo.empty()) {
+        algoritmoUsado = "deflate";
+    } else {
+        algoritmoUsado = "deflate"; 
+    }
     cout << "Comprimiendo carpeta: " << carpetaEntrada << " -> " << carpetaSalida << endl;
+    cout << "Algoritmo: " << algoritmoUsado << " (modo contenedor)" << endl;
     // Explorar carpeta y obtener todos los archivos
     vector<ArchivoInfo> archivos = explorarCarpetaRecursivo(carpetaEntrada);
     
@@ -436,7 +443,15 @@ void comprimirCarpeta(const string& carpetaEntrada, const string& carpetaSalida,
 }
 
 void descomprimirCarpeta(const string& archivoEntrada, const string& carpetaSalida, const string& algoritmo) {
+    // Usar deflate por defecto, independientemente del algoritmo especificado
+    string algoritmoUsado;
+    if (algoritmo.empty()) {
+        algoritmoUsado = "deflate";
+    } else {
+        algoritmoUsado = "deflate"; // Siempre usar deflate por ahora
+    }
     cout << "Descomprimiendo archivo: " << archivoEntrada << " -> " << carpetaSalida << endl;
+    cout << "Algoritmo usado: " << algoritmoUsado << endl;
     
     string contenedorTemp = carpetaSalida + "_temp.bin";
     
