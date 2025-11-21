@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <dirent.h>
 #include <errno.h>
+#include <omp.h>
 #include "likeDeflate/deflate_interface.h"
 using namespace std;
 
@@ -261,39 +262,49 @@ vector<ArchivoInfo> explorarCarpetaRecursivo(const string& carpetaBase, const st
     string rutaCompleta = carpetaBase;
     if (!carpetaActual.empty()) {
         rutaCompleta += "/" + carpetaActual;
-    }   
+    }
     DIR* dir = opendir(rutaCompleta.c_str());
     if (dir == nullptr) {
         throw runtime_error("Error: No se pudo abrir la carpeta: " + rutaCompleta);
     }
     struct dirent* entry;
+    vector<pair<string, string>> archivosAProcesar; // rutaCompleta, rutaRelativa
+    vector<string> subcarpetas;
     while ((entry = readdir(dir)) != nullptr) {
         string nombre = entry->d_name;
-        
         if (nombre == "." || nombre == "..") continue;
         string rutaArchivoCompleta = rutaCompleta + "/" + nombre;
         string rutaRelativaArchivo = carpetaActual.empty() ? nombre : carpetaActual + "/" + nombre;
-        
         struct stat entryStat;
         if (stat(rutaArchivoCompleta.c_str(), &entryStat) == -1) {
             cerr << "  Advertencia: No se pudo acceder a " << rutaArchivoCompleta << endl;
             continue;
         }
-        
-        if (S_ISREG(entryStat.st_mode)) {    // ES ARCHIVO entonces agregarlo
-            ArchivoInfo info;
-            info.rutaRelativa = rutaRelativaArchivo;
-            info.contenido = leerArchivoConSyscalls(rutaArchivoCompleta);
-            archivos.push_back(info);
-            cout << "  Agregado: " << rutaRelativaArchivo << " (" << info.contenido.size() << " bytes)" << endl;
-            
-        } else if (S_ISDIR(entryStat.st_mode)) {  // ES SUBCARPETA  entonces  recursión
-            auto subArchivos = explorarCarpetaRecursivo(carpetaBase, rutaRelativaArchivo);
-            archivos.insert(archivos.end(), subArchivos.begin(), subArchivos.end());
+        if (S_ISREG(entryStat.st_mode)) {
+            archivosAProcesar.push_back({rutaArchivoCompleta, rutaRelativaArchivo});
+        } else if (S_ISDIR(entryStat.st_mode)) {
+            subcarpetas.push_back(rutaRelativaArchivo);
         }
     }
-    
     closedir(dir);
+
+    // Paralelizar la lectura de archivos
+    #pragma omp parallel for default(none) shared(archivos, archivosAProcesar)
+    for (size_t i = 0; i < archivosAProcesar.size(); ++i) {
+        ArchivoInfo info;
+        info.rutaRelativa = archivosAProcesar[i].second;
+        info.contenido = leerArchivoConSyscalls(archivosAProcesar[i].first);
+        #pragma omp critical
+        {
+            archivos.push_back(info);
+        }
+    }
+
+    // Procesar subcarpetas (recursivo, secuencial)
+    for (const auto& sub : subcarpetas) {
+        auto subArchivos = explorarCarpetaRecursivo(carpetaBase, sub);
+        archivos.insert(archivos.end(), subArchivos.begin(), subArchivos.end());
+    }
     return archivos;
 }
 
@@ -466,12 +477,11 @@ void descomprimirCarpeta(const string& archivoEntrada, const string& carpetaSali
             throw runtime_error("Error: No se pudo crear la carpeta de salida: " + carpetaSalida);
         }
         
-        for (const auto& archivo : archivos) {
-            string rutaCompleta = carpetaSalida + "/" + archivo.rutaRelativa;
-            
-            crearEstructuraCarpetas(carpetaSalida, archivo.rutaRelativa);
-            escribirArchivoConSyscalls(rutaCompleta, archivo.contenido);
-            cout << "  Extraído: " << archivo.rutaRelativa << " (" << archivo.contenido.size() << " bytes)" << endl;
+        #pragma omp parallel for default(none) shared(archivos, carpetaSalida)
+        for (size_t i = 0; i < archivos.size(); ++i) {
+            string rutaCompleta = carpetaSalida + "/" + archivos[i].rutaRelativa;
+            crearEstructuraCarpetas(carpetaSalida, archivos[i].rutaRelativa);
+            escribirArchivoConSyscalls(rutaCompleta, archivos[i].contenido);
         }
         
         cout << "Descompresión de carpeta completada." << endl;
