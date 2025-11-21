@@ -1,5 +1,6 @@
 #include "lz77.h"
 #include <cstring>
+#include <omp.h>
 
 LZ77::Match LZ77::findLongestMatch(const uint8_t* input, size_t input_size) {
     Match best(0,0);
@@ -8,17 +9,50 @@ LZ77::Match LZ77::findLongestMatch(const uint8_t* input, size_t input_size) {
     const size_t max_look = std::min(LOOKAHEAD_SIZE, input_size - cursor);
     const size_t W = window.size();
 
-    for (size_t i = 0; i < W; ++i) {
-        size_t ml = 0;
-        while (ml < max_look && (i + ml) < W && window[i + ml] == input[cursor + ml]) {
-            ++ml;
+    const size_t PARALLEL_THRESHOLD = 4096;  // Solo paralelizar si ventana > 4KB
+
+    if (W >= PARALLEL_THRESHOLD) {
+        // Convertir deque a vector para acceso paralelo
+        std::vector<uint8_t> win_vec(window.begin(), window.end());
+
+        #pragma omp parallel
+        {
+            Match local_best(0, 0);
+
+            #pragma omp for nowait
+            for (size_t i = 0; i < W; ++i) {
+                size_t ml = 0;
+                while (ml < max_look && (i + ml) < W && win_vec[i + ml] == input[cursor + ml]) {
+                    ++ml;
+                }
+                if (ml > local_best.length) {
+                    local_best.position = static_cast<uint16_t>(W - i);
+                    local_best.length = static_cast<uint16_t>(ml);
+                }
+            }
+
+            #pragma omp critical
+            {
+                if (local_best.length > best.length) {
+                    best = local_best;
+                }
+            }
         }
-        if (ml > best.length) {
-            best.position = static_cast<uint16_t>(W - i);
-            best.length   = static_cast<uint16_t>(ml);
-            if (ml == max_look) break;
+    } else {
+        // Versión secuencial para ventanas pequeñas
+        for (size_t i = 0; i < W; ++i) {
+            size_t ml = 0;
+            while (ml < max_look && (i + ml) < W && window[i + ml] == input[cursor + ml]) {
+                ++ml;
+            }
+            if (ml > best.length) {
+                best.position = static_cast<uint16_t>(W - i);
+                best.length = static_cast<uint16_t>(ml);
+                if (ml == max_look) break;
+            }
         }
     }
+
     return best;
 }
 
