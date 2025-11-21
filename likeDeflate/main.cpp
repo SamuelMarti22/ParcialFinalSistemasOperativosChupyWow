@@ -77,9 +77,8 @@ static void do_compress(const std::string &inPath, const std::string &outPath)
     std::string original_ext = p.extension().string();
     std::cout << "Extensión original: " << (original_ext.empty() ? "(sin extensión)" : original_ext) << "\n";
 
-    // 2) LZ77
-    LZ77 lz;
-    std::vector<uint8_t> lz77_bytes = lz.compress(input);
+    // 2) LZ77 - CAMBIO: llamada estática directa
+    std::vector<uint8_t> lz77_bytes = LZ77::compress(input);
     std::cout << "LZ77 produjo " << lz77_bytes.size() << " bytes\n";
 
     // 3) Huffman sobre stream LZ77 (alfabeto 0..255)
@@ -98,12 +97,11 @@ static void do_compress(const std::string &inPath, const std::string &outPath)
     std::cout << "  - Header: " << sizeof(chupy::ChupyHeader) << " bytes\n";
     std::cout << "  - Datos: " << huff_blob.size() << " bytes\n";
 
-    // 6) Verificación rápida en memoria + stats
+    // 6) Verificación rápida en memoria + stats - CAMBIO: llamada estática directa
     auto back_syms = decodeHuffmanStream(huff_blob.data(), huff_blob.size());
     std::vector<uint8_t> lz77_back(back_syms.begin(), back_syms.end());
 
-    LZ77 lz2;
-    std::vector<uint8_t> restored = lz2.decompress(lz77_back);
+    std::vector<uint8_t> restored = LZ77::decompress(lz77_back);
 
     if (restored != input) {
         std::cerr << "AVISO: la verificación de integridad FALLÓ\n";
@@ -140,9 +138,8 @@ static void do_decompress(const std::string &inPath, const std::string &outPath)
     std::vector<uint8_t> lz77_bytes(syms.begin(), syms.end());
     std::cout << "Huffman decodificó " << lz77_bytes.size() << " bytes (stream LZ77)\n";
 
-    // 3) Descomprimir LZ77
-    LZ77 lz;
-    std::vector<uint8_t> restored = lz.decompress(lz77_bytes);
+    // 3) Descomprimir LZ77 - CAMBIO: llamada estática directa
+    std::vector<uint8_t> restored = LZ77::decompress(lz77_bytes);
 
     // 4) Determinar nombre de salida automático
     std::string final_output_path = outPath;
@@ -219,7 +216,7 @@ int menu_standalone()
             }
         }
     } catch (const std::exception &e) {
-        std::cerr << "\n❌ Error: " << e.what() << "\n";
+        std::cerr << "\n⌘ Error: " << e.what() << "\n";
         return 1;
     }
 }
