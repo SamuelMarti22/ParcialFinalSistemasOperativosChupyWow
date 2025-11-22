@@ -10,20 +10,23 @@
 #include <dirent.h>
 #include <errno.h>
 #include <omp.h>
+#include <chrono>
 #include "likeDeflate/deflate_interface.h"
+#include "likeDeflate/folder_compressor.h"
 #include "ChaCha20(encriptacion)/ChaCha20.h"
 #include "ChaCha20(encriptacion)/sha256.h"
 using namespace std;
 
 
-// Estructura para información de archivos en el contenedor usado para carpetas
-struct ArchivoInfo {
-    string rutaRelativa;
-    vector<uint8_t> contenido;
-};
+// Función auxiliar para mostrar tiempo y bytes de una operación
+static void mostrarResumenOperacion(const string& operacion, size_t bytes, double tiempoSegundos) {
+    cout << endl;
+    cout << "Operacion: " << operacion  << endl;
+    cout << "Bytes procesados: " << bytes << " bytes" << endl;
+    cout << "Tiempo: "<< tiempoSegundos << " s " << endl;
+}
 
 
-// Método que convierte los argumentos de línea de comandos en una estructura Parametros
 // Parsea los argumentos sin validar
 static Parametros parsearArgumentos(int argc, char* argv[]) {
     Parametros p;
@@ -191,22 +194,27 @@ Parametros leerYValidarComandos(int argc, char* argv[]) {
 void mostrarAyuda() {
     cout << "Uso: ./xxxx [opciones]\n" << endl;
     cout << "Comandos:" << endl;
-    cout << "  -c         Comprimir archivo" << endl;
+    cout << "  -c         Comprimir archivo/carpeta" << endl;
     cout << "  -d         Descomprimir archivo" << endl;
     cout << "  -e         Encriptar archivo" << endl;
     cout << "  -u         Desencriptar archivo" << endl;
     cout << "  -ce        Comprimir + Encriptar" << endl;
     cout << "  -ud        Desencriptar + Descomprimir\n" << endl;
 
-    cout << "  -i <archivo>     Archivo de entrada" << endl;
-    cout << "  -o <archivo>     Archivo de salida" << endl;
-    cout << "  --comp-alg <x>   Algoritmo de compresión (ej: huffman)" << endl;
-    cout << "  --enc-alg <x>    Algoritmo de encriptación (ej: chacha20)" << endl;
+    cout << "  -i <archivo>     Archivo/carpeta de entrada" << endl;
+    cout << "  -o <archivo>     Archivo/carpeta de salida" << endl;
+    cout << "  --comp-alg <x>   Algoritmo de compresión (deflate)" << endl;
+    cout << "  --enc-alg <x>    Algoritmo de encriptación (chacha20)" << endl;
     cout << "  -k <clave>       Clave de encriptación\n" << endl;
+    
+    cout << "Variables de entorno:" << endl;
+    cout << "  OMP_NUM_THREADS  Número de hilos para paralelización\n" << endl;
 }
 
 // Función para leer archivos usando syscalls POSIX
 vector<uint8_t> leerArchivoConSyscalls(const string& rutaArchivo) {
+    auto inicioLectura = chrono::high_resolution_clock::now();
+    
     // Abrir archivo para lectura
     int fd = open(rutaArchivo.c_str(), O_RDONLY);
     if (fd == -1) {
@@ -236,12 +244,20 @@ vector<uint8_t> leerArchivoConSyscalls(const string& rutaArchivo) {
     }
     close(fd);
     buffer.resize(totalLeido);
+    
+    auto finLectura = chrono::high_resolution_clock::now();
+    chrono::duration<double> duracion = finLectura - inicioLectura;
+    
     cout << "Archivo leído exitosamente: " << rutaArchivo << " (" << totalLeido << " bytes)" << endl;
+    mostrarResumenOperacion("Lectura de archivo", totalLeido, duracion.count());
+    
     return buffer;
 }
 
 // Función para escribir archivos usando syscalls
 void escribirArchivoConSyscalls(const string& rutaArchivo, const vector<uint8_t>& datos) {
+    auto inicioEscritura = chrono::high_resolution_clock::now();
+    
     int fd = open(rutaArchivo.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd == -1) {
         throw runtime_error("No se pudo abrir el archivo para escritura: " + rutaArchivo + " (" + strerror(errno) + ")");
@@ -260,281 +276,123 @@ void escribirArchivoConSyscalls(const string& rutaArchivo, const vector<uint8_t>
     }
 
     close(fd);
+    
+    auto finEscritura = chrono::high_resolution_clock::now();
+    chrono::duration<double> duracion = finEscritura - inicioEscritura;
+    
     cout << "Archivo escrito exitosamente: " << rutaArchivo << " (" << datos.size() << " bytes)" << endl;
+    mostrarResumenOperacion("Escritura de archivo", datos.size(), duracion.count());
 }
 
+// Compresion de carpetas usando folder_compressor
 // Explora la carpeta recursivamente y se obtienen todos los archivos
-vector<ArchivoInfo> explorarCarpetaRecursivo(const string& carpetaBase, const string& carpetaActual = "") {
-    vector<ArchivoInfo> archivos;
-    string rutaCompleta = carpetaBase;
-    if (!carpetaActual.empty()) {
-        rutaCompleta += "/" + carpetaActual;
-    }
-    DIR* dir = opendir(rutaCompleta.c_str());
-    if (dir == nullptr) {
-        throw runtime_error("Error: No se pudo abrir la carpeta: " + rutaCompleta);
-    }
-    struct dirent* entry;
-    vector<pair<string, string>> archivosAProcesar; // rutaCompleta, rutaRelativa
-    vector<string> subcarpetas;
-    while ((entry = readdir(dir)) != nullptr) {
-        string nombre = entry->d_name;
-        if (nombre == "." || nombre == "..") continue;
-        string rutaArchivoCompleta = rutaCompleta + "/" + nombre;
-        string rutaRelativaArchivo = carpetaActual.empty() ? nombre : carpetaActual + "/" + nombre;
-        struct stat entryStat;
-        if (stat(rutaArchivoCompleta.c_str(), &entryStat) == -1) {
-            cerr << "  Advertencia: No se pudo acceder a " << rutaArchivoCompleta << endl;
-            continue;
-        }
-        if (S_ISREG(entryStat.st_mode)) {
-            archivosAProcesar.push_back({rutaArchivoCompleta, rutaRelativaArchivo});
-        } else if (S_ISDIR(entryStat.st_mode)) {
-            subcarpetas.push_back(rutaRelativaArchivo);
-        }
-    }
-    closedir(dir);
-
-    // Paralelizar la lectura de archivos
-    #pragma omp parallel for default(none) shared(archivos, archivosAProcesar)
-    for (size_t i = 0; i < archivosAProcesar.size(); ++i) {
-        ArchivoInfo info;
-        info.rutaRelativa = archivosAProcesar[i].second;
-        info.contenido = leerArchivoConSyscalls(archivosAProcesar[i].first);
-        #pragma omp critical
-        {
-            archivos.push_back(info);
-        }
-    }
-
-    // Procesar subcarpetas (recursivo, secuencial)
-    for (const auto& sub : subcarpetas) {
-        auto subArchivos = explorarCarpetaRecursivo(carpetaBase, sub);
-        archivos.insert(archivos.end(), subArchivos.begin(), subArchivos.end());
-    }
-    return archivos;
-}
-
-// Función para crear el contenedor 
-vector<uint8_t> crearContenedor(const vector<ArchivoInfo>& archivos) {
-    vector<uint8_t> contenedor;
-    
-    // Header: número de archivos
-    uint32_t numArchivos = static_cast<uint32_t>(archivos.size());
-    contenedor.push_back((numArchivos >> 24) & 0xFF);
-    contenedor.push_back((numArchivos >> 16) & 0xFF);
-    contenedor.push_back((numArchivos >> 8) & 0xFF);
-    contenedor.push_back(numArchivos & 0xFF);
-    
-    // Por cada archivo tiene: [tamaño_nombre][nombre][tamaño_contenido][contenido]
-    for (const auto& archivo : archivos) {
-        // Tamaño del nombre 
-        uint32_t tamanoNombre = static_cast<uint32_t>(archivo.rutaRelativa.size());
-        contenedor.push_back((tamanoNombre >> 24) & 0xFF);
-        contenedor.push_back((tamanoNombre >> 16) & 0xFF);
-        contenedor.push_back((tamanoNombre >> 8) & 0xFF);
-        contenedor.push_back(tamanoNombre & 0xFF);
-        
-        // Nombre del archivo
-        for (char c : archivo.rutaRelativa) {
-            contenedor.push_back(static_cast<uint8_t>(c));
-        }
-        // Tamaño del contenido 
-        uint32_t tamanoContenido = static_cast<uint32_t>(archivo.contenido.size());
-        contenedor.push_back((tamanoContenido >> 24) & 0xFF);
-        contenedor.push_back((tamanoContenido >> 16) & 0xFF);
-        contenedor.push_back((tamanoContenido >> 8) & 0xFF);
-        contenedor.push_back(tamanoContenido & 0xFF);
-        
-        // Contenido del archivo
-        contenedor.insert(contenedor.end(), archivo.contenido.begin(), archivo.contenido.end());
-    }
-    
-    return contenedor;
-}
-
-// Función para parsear el contenedor para el momento de descomprimir
-vector<ArchivoInfo> parsearContenedor(const vector<uint8_t>& contenedor) {
-    vector<ArchivoInfo> archivos;
-    if (contenedor.size() < 4) {
-        throw runtime_error("Error: Contenedor demasiado pequeño");
-    }
-    uint32_t numArchivos = (static_cast<uint32_t>(contenedor[0]) << 24) |(static_cast<uint32_t>(contenedor[1]) << 16) |(static_cast<uint32_t>(contenedor[2]) << 8) | static_cast<uint32_t>(contenedor[3]);
-    size_t offset = 4;
-   
-    for (uint32_t i = 0; i < numArchivos; ++i) {
-        if (offset + 4 > contenedor.size()) {
-            throw runtime_error("Error: Contenedor corrupto al leer archivo " + to_string(i));
-        }
-        
-        // Leer tamaño del nombre
-        uint32_t tamanoNombre = (static_cast<uint32_t>(contenedor[offset]) << 24) | (static_cast<uint32_t>(contenedor[offset + 1]) << 16) | (static_cast<uint32_t>(contenedor[offset + 2]) << 8) | static_cast<uint32_t>(contenedor[offset + 3]);
-        offset += 4;
-        
-        if (offset + tamanoNombre > contenedor.size()) {
-            throw runtime_error("Error: Contenedor corrupto al leer nombre del archivo " + to_string(i));
-        }
-        
-        // Leer nombre
-        string nombre(contenedor.begin() + offset, contenedor.begin() + offset + tamanoNombre);
-        offset += tamanoNombre;
-        
-        if (offset + 4 > contenedor.size()) {
-            throw runtime_error("Error: Contenedor corrupto al leer tamaño del contenido " + to_string(i));
-        }
-        
-        // Leer tamaño del contenido
-        uint32_t tamanoContenido = (static_cast<uint32_t>(contenedor[offset]) << 24) | (static_cast<uint32_t>(contenedor[offset + 1]) << 16) | (static_cast<uint32_t>(contenedor[offset + 2]) << 8) | static_cast<uint32_t>(contenedor[offset + 3]);
-        offset += 4;
-        
-        if (offset + tamanoContenido > contenedor.size()) {
-            throw runtime_error("Error: Contenedor corrupto al leer contenido del archivo " + to_string(i));
-        }
-        
-        // Leer contenido
-        vector<uint8_t> contenido(contenedor.begin() + offset, contenedor.begin() + offset + tamanoContenido);
-        offset += tamanoContenido;
-        
-        // Agregar archivo
-        ArchivoInfo info;
-        info.rutaRelativa = nombre;
-        info.contenido = contenido;
-        archivos.push_back(info);
-    }
-    return archivos;
-}
-
-// Función para crear estructura de carpetas
-void crearEstructuraCarpetas(const string& rutaBase, const string& rutaArchivo) {
-    size_t pos = rutaArchivo.find_last_of('/');
-    if (pos != string::npos) {
-        string carpetaParent = rutaBase + "/" + rutaArchivo.substr(0, pos);
-        string carpetaAcumulada = rutaBase;   // Crear carpetas recursivamente
-        string subcarpeta = rutaArchivo.substr(0, pos);
-        size_t inicio = 0;
-        while (inicio < subcarpeta.size()) {
-            size_t siguiente = subcarpeta.find('/', inicio);
-            if (siguiente == string::npos) siguiente = subcarpeta.size();
-            
-            carpetaAcumulada += "/" + subcarpeta.substr(inicio, siguiente - inicio);
-            
-            if (mkdir(carpetaAcumulada.c_str(), 0755) == -1 && errno != EEXIST) {
-                cerr << "  Advertencia: No se pudo crear carpeta: " << carpetaAcumulada << endl;
-            }
-            
-            inicio = siguiente + 1;
-        }
-    }
-}
-
 void comprimirCarpeta(const string& carpetaEntrada, const string& carpetaSalida, const string& algoritmo) {
-    string algoritmoUsado;
-    if (algoritmo.empty()) {
-        algoritmoUsado = "deflate";
-    } else {
-        algoritmoUsado = "deflate"; 
-    }
+    auto inicioCompresion = chrono::high_resolution_clock::now();
+    
     cout << "Comprimiendo carpeta: " << carpetaEntrada << " -> " << carpetaSalida << endl;
-    cout << "Algoritmo: " << algoritmoUsado << " (modo contenedor)" << endl;
-    // Explorar carpeta y obtener todos los archivos
-    vector<ArchivoInfo> archivos = explorarCarpetaRecursivo(carpetaEntrada);
     
-    if (archivos.empty()) {
-        cout << "Advertencia: No se encontraron archivos para comprimir." << endl;
-        return;
+    string salidaFinal = carpetaSalida;
+    if (salidaFinal.find(".chupydir") == string::npos) {
+        salidaFinal += ".chupydir";
     }
-    cout << "Total de archivos encontrados: " << archivos.size() << endl;
-
-    // Crear contenedor con todos los archivos
-    vector<uint8_t> contenedor = crearContenedor(archivos);
-    cout << "Contenedor creado (" << contenedor.size() << " bytes)" << endl;
     
-    // contenedor temporal y comprimirlo con deflate -> llamar a la interfaz
-    string contenedorTemp = carpetaSalida + "_temp.bin";
-    escribirArchivoConSyscalls(contenedorTemp, contenedor);
+    FolderCompressor::compressFolder(carpetaEntrada, salidaFinal);
     
-    // Comprimir usando la interfaz de deflate (agregará .chupy automáticamente)
-    comprimirConDeflate(contenedorTemp, carpetaSalida);
-    unlink(contenedorTemp.c_str());
+    // Obtener tamaño del archivo comprimido
+    struct stat fileStat;
+    size_t bytesComprimidos = 0;
+    if (stat(salidaFinal.c_str(), &fileStat) == 0) {
+        bytesComprimidos = fileStat.st_size;
+    }
+    
+    auto finCompresion = chrono::high_resolution_clock::now();
+    chrono::duration<double> duracion = finCompresion - inicioCompresion;
     
     cout << "Compresión de carpeta completada." << endl;
+    mostrarResumenOperacion("Compresión de carpeta", bytesComprimidos, duracion.count());
 }
 
 void descomprimirCarpeta(const string& archivoEntrada, const string& carpetaSalida, const string& algoritmo) {
-    // Usar deflate por defecto, independientemente del algoritmo especificado
-    string algoritmoUsado;
-    if (algoritmo.empty()) {
-        algoritmoUsado = "deflate";
-    } else {
-        algoritmoUsado = "deflate"; // Siempre usar deflate por ahora
-    }
+    auto inicioDescompresion = chrono::high_resolution_clock::now();
+    
     cout << "Descomprimiendo archivo: " << archivoEntrada << " -> " << carpetaSalida << endl;
-    cout << "Algoritmo usado: " << algoritmoUsado << endl;
     
-    string contenedorTemp = carpetaSalida + "_temp.bin";
-    
-    try {
-        descomprimirConDeflate(archivoEntrada, contenedorTemp);
-        
-        vector<uint8_t> contenedor = leerArchivoConSyscalls(contenedorTemp);
-        vector<ArchivoInfo> archivos = parsearContenedor(contenedor);
-        cout << "Archivos encontrados en el contenedor: " << archivos.size() << endl;
-        
-        if (mkdir(carpetaSalida.c_str(), 0755) == -1 && errno != EEXIST) {
-            throw runtime_error("Error: No se pudo crear la carpeta de salida: " + carpetaSalida);
-        }
-        
-        #pragma omp parallel for default(none) shared(archivos, carpetaSalida)
-        for (size_t i = 0; i < archivos.size(); ++i) {
-            string rutaCompleta = carpetaSalida + "/" + archivos[i].rutaRelativa;
-            crearEstructuraCarpetas(carpetaSalida, archivos[i].rutaRelativa);
-            escribirArchivoConSyscalls(rutaCompleta, archivos[i].contenido);
-        }
-        
-        cout << "Descompresión de carpeta completada." << endl;
-        
-    } catch (...) {
-        unlink(contenedorTemp.c_str());
-        throw; 
+    // Obtener tamaño del archivo antes de descomprimir
+    struct stat fileStat;
+    size_t bytesComprimidos = 0;
+    if (stat(archivoEntrada.c_str(), &fileStat) == 0) {
+        bytesComprimidos = fileStat.st_size;
     }
     
-    unlink(contenedorTemp.c_str());
+    FolderCompressor::decompressFolder(archivoEntrada, carpetaSalida);
+    
+    auto finDescompresion = chrono::high_resolution_clock::now();
+    chrono::duration<double> duracion = finDescompresion - inicioDescompresion;
+    
+    cout << "Descompresión de carpeta completada." << endl;
+    mostrarResumenOperacion("Descompresión de carpeta", bytesComprimidos, duracion.count());
 }
 
-// ===== Funciones de encriptación con ChaCha20 =====
 
+// Encriptación y desencriptación usando ChaCha20
 void encriptarArchivo(const string& archivoEntrada, const string& archivoSalida, const string& password) {
+    auto inicioEncriptacion = chrono::high_resolution_clock::now();
+    
     cout << "Encriptando archivo: " << archivoEntrada << " -> " << archivoSalida << endl;
     cout << "Algoritmo: ChaCha20" << endl;
     
-    // Derivar clave de 32 bytes desde el password usando SHA-256
+    // Obtener tamaño del archivo de entrada
+    struct stat fileStat;
+    size_t bytesEncriptados = 0;
+    if (stat(archivoEntrada.c_str(), &fileStat) == 0) {
+        bytesEncriptados = fileStat.st_size;
+    }
+    
     uint8_t key[CHACHA20_KEY_SIZE];
     SHA256::hash(password, key);
     
-    // Encriptar el archivo (el nonce se genera automáticamente y se guarda en el archivo)
     chacha20_encrypt_file(archivoEntrada, archivoSalida, key);
     
-    // Limpiar la clave de la memoria por seguridad
     memset(key, 0, CHACHA20_KEY_SIZE);
     
+    auto finEncriptacion = chrono::high_resolution_clock::now();
+    chrono::duration<double> duracion = finEncriptacion - inicioEncriptacion;
+    
     cout << "Encriptación completada." << endl;
+    mostrarResumenOperacion("Encriptación (ChaCha20)", bytesEncriptados, duracion.count());
 }
 
 void desencriptarArchivo(const string& archivoEntrada, const string& archivoSalida, const string& password) {
+    auto inicioDesencriptacion = chrono::high_resolution_clock::now();
+    
     cout << "Desencriptando archivo: " << archivoEntrada << " -> " << archivoSalida << endl;
     cout << "Algoritmo: ChaCha20" << endl;
     
-    // Derivar clave de 32 bytes desde el password usando SHA-256
+    // Obtener tamaño del archivo encriptado
+    struct stat fileStat;
+    size_t bytesDesencriptados = 0;
+    if (stat(archivoEntrada.c_str(), &fileStat) == 0) {
+        bytesDesencriptados = fileStat.st_size;
+    }
+    
     uint8_t key[CHACHA20_KEY_SIZE];
     SHA256::hash(password, key);
     
-    // Desencriptar el archivo (el nonce se lee del archivo)
     chacha20_decrypt_file(archivoEntrada, archivoSalida, key);
     
-    // Limpiar la clave de la memoria por seguridad
     memset(key, 0, CHACHA20_KEY_SIZE);
     
+    auto finDesencriptacion = chrono::high_resolution_clock::now();
+    chrono::duration<double> duracion = finDesencriptacion - inicioDesencriptacion;
+    
     cout << "Desencriptación completada." << endl;
+    mostrarResumenOperacion("Desencriptación (ChaCha20)", bytesDesencriptados, duracion.count());
+}
+
+// Detectar si el archivo es de carpeta comprimida (.chupydir)
+static bool esArchivoCarpetaComprimida(const string& archivo) {
+    // Detectar archivos .chupydir
+    return archivo.find(".chupydir") != string::npos;
 }
 
 void ejecutarOperacion(const Parametros& params) {
@@ -547,52 +405,42 @@ void ejecutarOperacion(const Parametros& params) {
             throw runtime_error("Error: No se pudo acceder a la entrada: " + params.entrada);
         }
 
-        // Mira si es carpeta comprimida para descomprimir
-        bool esCarpetaComprimida = S_ISREG(entryStat.st_mode) &&  params.entrada.find(".chupy") != string::npos && (params.descomprimir || params.desencriptarYDescomprimir) && params.salida.find(".") == string::npos;
+        bool esDirectorio = S_ISDIR(entryStat.st_mode);
+        bool esArchivo = S_ISREG(entryStat.st_mode);
+        bool esCarpetaComprimida = esArchivoCarpetaComprimida(params.entrada);
 
-        // ===== OPERACIONES COMBINADAS =====
+        // Operaciones combinadas 
         if (params.comprimirYEncriptar) {
             cout << "Detectado: Comprimir + Encriptar" << endl;
             
-            // Crear archivo temporal para compresión
             string archivoTemp = params.salida + ".temp.chupy";
             
-            if (S_ISDIR(entryStat.st_mode)) {
-                // Comprimir carpeta
+            if (esDirectorio) {
                 comprimirCarpeta(params.entrada, archivoTemp, params.algoritmoComp);
             } else {
-                // Comprimir archivo
                 comprimirConDeflate(params.entrada, archivoTemp);
             }
             
-            // Encriptar el archivo comprimido
             encriptarArchivo(archivoTemp, params.salida, params.clave);
-            
-            // Eliminar archivo temporal
             unlink(archivoTemp.c_str());
             
         } else if (params.desencriptarYDescomprimir) {
             cout << "Detectado: Desencriptar + Descomprimir" << endl;
             
-            // Crear archivo temporal para desencriptación
-            string archivoTemp = params.entrada + ".temp.chupy";
+            string archivoTemp = params.entrada + ".temp";
             
-            // Desencriptar primero
             desencriptarArchivo(params.entrada, archivoTemp, params.clave);
             
-            // Determinar si es carpeta o archivo
-            if (esCarpetaComprimida || params.salida.find(".") == string::npos) {
-                // Es carpeta
+            // Detectar si es carpeta o archivo por extensión del temp
+            if (esArchivoCarpetaComprimida(archivoTemp)) {
                 descomprimirCarpeta(archivoTemp, params.salida, params.algoritmoComp);
             } else {
-                // Es archivo
                 descomprimirConDeflate(archivoTemp, params.salida);
             }
             
-            // Eliminar archivo temporal
             unlink(archivoTemp.c_str());
             
-        // ===== SOLO ENCRIPTACIÓN =====
+        // Solo encriptación/desencriptación
         } else if (params.encriptar) {
             cout << "Detectado: Solo Encriptar" << endl;
             encriptarArchivo(params.entrada, params.salida, params.clave);
@@ -601,85 +449,31 @@ void ejecutarOperacion(const Parametros& params) {
             cout << "Detectado: Solo Desencriptar" << endl;
             desencriptarArchivo(params.entrada, params.salida, params.clave);
             
-        // ===== SOLO COMPRESIÓN =====
-        } else if (esCarpetaComprimida) {
-            cout << "Detectado: archivo de carpeta comprimida" << endl;
-            descomprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
-        } else if (S_ISREG(entryStat.st_mode)) {
-        if (S_ISREG(entryStat.st_mode)) {
-            cout << "Detectado: archivo" << endl;
-            
-            if (params.comprimir || params.comprimirYEncriptar) {
-                comprimirConDeflate(params.entrada, params.salida);
-            } 
-            else if (params.descomprimir || params.desencriptarYDescomprimir) {
-                // Verificar si es carpeta comprimida leyendo el header
-                if (params.entrada.find(".chupy") != string::npos) {
-                    // Leer el archivo para verificar si es contenedor de carpeta
-                    vector<uint8_t> datos = leerArchivoConSyscalls(params.entrada);
-                    
-                    // Intentar descomprimir y verificar si es contenedor
-                    string archivoTemp = params.salida + "_verification.bin";
-                    try {
-                        descomprimirConDeflate(params.entrada, archivoTemp);
-                        vector<uint8_t> descomprimido = leerArchivoConSyscalls(archivoTemp);
-                        
-                        // Verificar si tiene estructura de contenedor (primeros 4 bytes = número de archivos)
-                        bool esContenedor = false;
-                        if (descomprimido.size() >= 4) {
-                            uint32_t numArchivos = (static_cast<uint32_t>(descomprimido[0]) << 24) |
-                                                   (static_cast<uint32_t>(descomprimido[1]) << 16) |
-                                                   (static_cast<uint32_t>(descomprimido[2]) << 8) |
-                                                    static_cast<uint32_t>(descomprimido[3]);
-                            
-                            // Si el número es razonable (< 10000 archivos), podría ser un contenedor
-                            if (numArchivos > 0 && numArchivos < 10000) {
-                                try {
-                                    parsearContenedor(descomprimido);
-                                    esContenedor = true;
-                                } catch (...) {
-                                    esContenedor = false;
-                                }
-                            }
-                        }
-                        
-                        unlink(archivoTemp.c_str());
-                        
-                        if (esContenedor) {
-                            cout << "Detectado: archivo de carpeta comprimida" << endl;
-                            descomprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
-                        } else {
-                            cout << "Detectado: archivo individual comprimido" << endl;
-                            // Quitar extensión de salida si existe
-                            string salidaSinExt = params.salida;
-                            size_t pos = salidaSinExt.find_last_of('.');
-                            if (pos != string::npos) {
-                                salidaSinExt = salidaSinExt.substr(0, pos);
-                            }
-                            descomprimirConDeflate(params.entrada, salidaSinExt);
-                        }
-                    } catch (...) {
-                        unlink(archivoTemp.c_str());
-                        throw;
-                    }
-                } else {
-                    throw runtime_error("Error: Archivo no tiene extensión .chupy");
-                }
-            }
-        } 
-        else if (S_ISDIR(entryStat.st_mode)) {
-            cout << "Detectado: carpeta" << endl;
-            if (params.comprimir) {
+        // Solo compresion/descompresión
+        } else if (params.comprimir) {
+            if (esDirectorio) {
+                cout << "Detectado: carpeta" << endl;
                 comprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
-            } else if (params.descomprimir || params.desencriptarYDescomprimir) {
-                throw runtime_error("Error: No puedes descomprimir una carpeta directamente");
+            } else if (esArchivo) {
+                cout << "Detectado: archivo" << endl;
+                comprimirConDeflate(params.entrada, params.salida);
+            } else {
+                throw runtime_error("Error: Tipo de entrada no soportado");
             }
-        } 
-        else {
-            throw runtime_error("Error: Tipo de entrada no soportado");
+            
+        } else if (params.descomprimir) {
+            if (esCarpetaComprimida) {
+                cout << "Detectado: archivo de carpeta comprimida (.chupydir)" << endl;
+                descomprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
+            } else if (esArchivo) {
+                cout << "Detectado: archivo comprimido individual" << endl;
+                descomprimirConDeflate(params.entrada, params.salida);
+            } else {
+                throw runtime_error("Error: Tipo de entrada no soportado para descompresión");
+            }
         }
 
-    }} catch (const exception& e) {
+    } catch (const exception& e) {
         cerr << "Error: " << e.what() << endl;
         exit(1);
     }
