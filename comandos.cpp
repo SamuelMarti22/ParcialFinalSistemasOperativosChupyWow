@@ -413,11 +413,14 @@ void ejecutarOperacion(const Parametros& params) {
         if (params.comprimirYEncriptar) {
             cout << "Detectado: Comprimir + Encriptar" << endl;
             
-            string archivoTemp = params.salida + ".temp.chupy";
-            
+            string archivoTemp;
             if (esDirectorio) {
+                // comprimirCarpeta añade .chupydir automáticamente
+                archivoTemp = params.salida + "_temp";
                 comprimirCarpeta(params.entrada, archivoTemp, params.algoritmoComp);
+                archivoTemp += ".chupydir"; // El archivo real tendrá esta extensión
             } else {
+                archivoTemp = params.salida + ".temp.chupy";
                 comprimirConDeflate(params.entrada, archivoTemp);
             }
             
@@ -427,7 +430,7 @@ void ejecutarOperacion(const Parametros& params) {
         } else if (params.desencriptarYDescomprimir) {
             cout << "Detectado: Desencriptar + Descomprimir" << endl;
             
-            string archivoTemp = params.entrada + ".temp";
+            string archivoTemp = params.entrada + ".temp.chupydir";
             
             desencriptarArchivo(params.entrada, archivoTemp, params.clave);
             

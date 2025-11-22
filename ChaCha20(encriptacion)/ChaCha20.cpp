@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cstdint>
 #include <omp.h>
+#include <chrono>
 
 // === Solo para I/O de archivos y CLI (opcional) ===
 #include <fstream>
@@ -276,6 +277,8 @@ void chacha20_encrypt_file(const std::string& inputPath,
                            const std::string& outputPath,
                            const uint8_t key[CHACHA20_KEY_SIZE])
 {
+    auto inicioTotal = std::chrono::high_resolution_clock::now();
+    
     std::ifstream in(inputPath, std::ios::in | std::ios::binary);
     ensure(in.good(), "No se pudo abrir el archivo de entrada");
 
@@ -298,6 +301,9 @@ void chacha20_encrypt_file(const std::string& inputPath,
     std::vector<uint8_t> inBuf(BUF_SIZE);
     std::vector<uint8_t> outBuf(BUF_SIZE);
 
+    auto inicioCifrado = std::chrono::high_resolution_clock::now();
+    size_t totalBytes = 0;
+    
     // Cifrar el archivo
     while (true) {
         in.read(reinterpret_cast<char*>(inBuf.data()), inBuf.size());
@@ -307,6 +313,23 @@ void chacha20_encrypt_file(const std::string& inputPath,
         chacha20_xor(&ctx, inBuf.data(), outBuf.data(), static_cast<size_t>(got));
         out.write(reinterpret_cast<const char*>(outBuf.data()), got);
         ensure(out.good(), "Error escribiendo en el archivo de salida");
+        
+        totalBytes += got;
+    }
+
+    auto finCifrado = std::chrono::high_resolution_clock::now();
+    auto finTotal = std::chrono::high_resolution_clock::now();
+    
+    std::chrono::duration<double> duracionCifrado = finCifrado - inicioCifrado;
+    std::chrono::duration<double> duracionTotal = finTotal - inicioTotal;
+    
+    std::cout << "  [ChaCha20] Bytes procesados: " << totalBytes << " bytes" << std::endl;
+    std::cout << "  [ChaCha20] Tiempo de cifrado puro: " << duracionCifrado.count() << " s" << std::endl;
+    std::cout << "  [ChaCha20] Tiempo total (I/O + cifrado): " << duracionTotal.count() << " s" << std::endl;
+    
+    if (duracionCifrado.count() > 0) {
+        double throughput = (totalBytes / (1024.0 * 1024.0)) / duracionCifrado.count();
+        std::cout << "  [ChaCha20] Rendimiento: " << throughput << " MB/s" << std::endl;
     }
 
     std::fill(inBuf.begin(), inBuf.end(), 0);
@@ -318,6 +341,8 @@ void chacha20_decrypt_file(const std::string& inputPath,
                            const std::string& outputPath,
                            const uint8_t key[CHACHA20_KEY_SIZE])
 {
+    auto inicioTotal = std::chrono::high_resolution_clock::now();
+    
     std::ifstream in(inputPath, std::ios::in | std::ios::binary);
     ensure(in.good(), "No se pudo abrir el archivo de entrada");
 
@@ -337,6 +362,9 @@ void chacha20_decrypt_file(const std::string& inputPath,
     std::vector<uint8_t> inBuf(BUF_SIZE);
     std::vector<uint8_t> outBuf(BUF_SIZE);
 
+    auto inicioDescifrado = std::chrono::high_resolution_clock::now();
+    size_t totalBytes = 0;
+    
     // Descifrar el archivo
     while (true) {
         in.read(reinterpret_cast<char*>(inBuf.data()), inBuf.size());
@@ -346,6 +374,23 @@ void chacha20_decrypt_file(const std::string& inputPath,
         chacha20_xor(&ctx, inBuf.data(), outBuf.data(), static_cast<size_t>(got));
         out.write(reinterpret_cast<const char*>(outBuf.data()), got);
         ensure(out.good(), "Error escribiendo en el archivo de salida");
+        
+        totalBytes += got;
+    }
+
+    auto finDescifrado = std::chrono::high_resolution_clock::now();
+    auto finTotal = std::chrono::high_resolution_clock::now();
+    
+    std::chrono::duration<double> duracionDescifrado = finDescifrado - inicioDescifrado;
+    std::chrono::duration<double> duracionTotal = finTotal - inicioTotal;
+    
+    std::cout << "  [ChaCha20] Bytes procesados: " << totalBytes << " bytes" << std::endl;
+    std::cout << "  [ChaCha20] Tiempo de descifrado puro: " << duracionDescifrado.count() << " s" << std::endl;
+    std::cout << "  [ChaCha20] Tiempo total (I/O + descifrado): " << duracionTotal.count() << " s" << std::endl;
+    
+    if (duracionDescifrado.count() > 0) {
+        double throughput = (totalBytes / (1024.0 * 1024.0)) / duracionDescifrado.count();
+        std::cout << "  [ChaCha20] Rendimiento: " << throughput << " MB/s" << std::endl;
     }
 
     std::fill(inBuf.begin(), inBuf.end(), 0);

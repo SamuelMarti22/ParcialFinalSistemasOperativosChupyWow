@@ -42,24 +42,12 @@ $(TARGET): $(ALL_SOURCES) $(HEADERS)
 	@printf "\033[33m→ Compilando y enlazando $(TARGET)...\033[0m\n"
 	$(CXX) $(CXXFLAGS) -o "$@" $(SOURCES) "ChaCha20(encriptacion)/ChaCha20.cpp" "ChaCha20(encriptacion)/sha256.cpp"
 
-# Limpiar archivos generados
-clean:
-	@printf "\033[33m→ Limpiando archivos temporales...\033[0m\n"
-	@rm -f *.o likeDeflate/*.o
-	@printf "\033[32m✓ Archivos temporales eliminados\033[0m\n"
-
-# Limpiar todo (incluido el ejecutable)
-distclean: clean
-	@printf "\033[33m→ Eliminando ejecutable...\033[0m\n"
-	@rm -f $(TARGET)
-	@printf "\033[32m✓ Proyecto limpio\033[0m\n"
-
 # Recompilar desde cero
-rebuild: distclean all
+rebuild: all
 
 # Compilar con información de debug
 debug: CXXFLAGS += -g -DDEBUG
-debug: clean all
+debug: all
 	@printf "\033[32m✓ Compilación con símbolos de debug completada\033[0m\n"
 
 # Mostrar información del proyecto
@@ -74,8 +62,6 @@ info:
 	@printf "\n"
 	@printf "\033[33mComandos disponibles:\033[0m\n"
 	@printf "  make           - Compila el proyecto\n"
-	@printf "  make clean     - Elimina archivos objeto\n"
-	@printf "  make distclean - Elimina todo (objetos + ejecutable)\n"
 	@printf "  make rebuild   - Recompila desde cero\n"
 	@printf "  make debug     - Compila con símbolos de debug\n"
 	@printf "  make info      - Muestra esta información\n"
@@ -101,4 +87,4 @@ help: info
 	@printf "\n"
 
 # Declarar targets que no son archivos
-.PHONY: all clean distclean rebuild debug info help
+.PHONY: all rebuild debug info help
