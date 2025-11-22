@@ -50,6 +50,6 @@ void decompressFolder(const std::string& input_file, const std::string& output_f
 std::vector<uint8_t> serializeMetadata(const std::vector<FileEntry>& entries);
 std::vector<FileEntry> deserializeMetadata(const uint8_t* data, size_t size);
 
-} // namespace FolderCompressor
+} 
 
-#endif // FOLDER_COMPRESSOR_H
+#endif 
