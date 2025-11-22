@@ -44,4 +44,11 @@ void comprimirCarpeta(const string& carpetaEntrada, const string& carpetaSalida,
 
 // Descomprime archivo .chupy usando likeDeflate, luego extrae contenedor y recrea estructura de carpetas con syscalls 
 void descomprimirCarpeta(const string& archivoEntrada, const string& carpetaSalida, const string& algoritmo);
+
+// Encripta un archivo usando ChaCha20 con una contraseña (se deriva clave con SHA-256)
+void encriptarArchivo(const string& archivoEntrada, const string& archivoSalida, const string& password);
+
+// Desencripta un archivo usando ChaCha20 con una contraseña (se deriva clave con SHA-256)
+void desencriptarArchivo(const string& archivoEntrada, const string& archivoSalida, const string& password);
+
 #endif

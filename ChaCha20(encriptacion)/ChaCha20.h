@@ -30,10 +30,26 @@ void chacha20_xor(ChaCha20_Context *ctx,
                   const uint8_t *in, uint8_t *out, size_t len);
 
 // Función para encriptar o desencriptar un mensaje (XOR con keystream)
-void chacha20_xor(ChaCha20_Context *ctx, const uint8_t *input, uint8_t *output, size_t len);
 void quarter_round(uint32_t *state, int a, int b, int c, int d);
 uint32_t rotl32(uint32_t x, uint32_t n);
 
+// ===== FUNCIONES RECOMENDADAS (con nonce automático) =====
+
+// Cifrar archivo: genera nonce aleatorio y lo guarda al inicio del archivo cifrado
+// Solo necesitas pasar: archivo_entrada, archivo_salida, y clave
+void chacha20_encrypt_file(const std::string& inputPath,
+                           const std::string& outputPath,
+                           const uint8_t key[CHACHA20_KEY_SIZE]);
+
+// Descifrar archivo: lee el nonce del inicio del archivo cifrado
+// Solo necesita pasar: archivo_entrada, archivo_salida, y clave
+void chacha20_decrypt_file(const std::string& inputPath,
+                           const std::string& outputPath,
+                           const uint8_t key[CHACHA20_KEY_SIZE]);
+
+// ===== FUNCIÓN LEGACY (control manual de nonce y counter) =====
+
+// Para uso avanzado si se necesita controlar nonce y counter manualmente
 void chacha20_xor_file(const std::string& inputPath,
                        const std::string& outputPath,
                        const uint8_t key[CHACHA20_KEY_SIZE],

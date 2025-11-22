@@ -11,6 +11,8 @@
 #include <errno.h>
 #include <omp.h>
 #include "likeDeflate/deflate_interface.h"
+#include "ChaCha20(encriptacion)/ChaCha20.h"
+#include "ChaCha20(encriptacion)/sha256.h"
 using namespace std;
 
 
@@ -171,6 +173,11 @@ static void validarLogicaParametros(const Parametros& p) {
 
     if (necesitaEncriptacion && p.clave.empty()) {
         cerr << "\n Error: Debes especificar una clave con -k\n" << endl;
+        exit(1);
+    }
+
+    if (necesitaEncriptacion && p.algoritmoEnc != "chacha20") {
+        cerr << "\n Error: Solo el algoritmo 'chacha20' está soportado actualmente\n" << endl;
         exit(1);
     }
 }
@@ -494,6 +501,42 @@ void descomprimirCarpeta(const string& archivoEntrada, const string& carpetaSali
     unlink(contenedorTemp.c_str());
 }
 
+// ===== Funciones de encriptación con ChaCha20 =====
+
+void encriptarArchivo(const string& archivoEntrada, const string& archivoSalida, const string& password) {
+    cout << "Encriptando archivo: " << archivoEntrada << " -> " << archivoSalida << endl;
+    cout << "Algoritmo: ChaCha20" << endl;
+    
+    // Derivar clave de 32 bytes desde el password usando SHA-256
+    uint8_t key[CHACHA20_KEY_SIZE];
+    SHA256::hash(password, key);
+    
+    // Encriptar el archivo (el nonce se genera automáticamente y se guarda en el archivo)
+    chacha20_encrypt_file(archivoEntrada, archivoSalida, key);
+    
+    // Limpiar la clave de la memoria por seguridad
+    memset(key, 0, CHACHA20_KEY_SIZE);
+    
+    cout << "Encriptación completada." << endl;
+}
+
+void desencriptarArchivo(const string& archivoEntrada, const string& archivoSalida, const string& password) {
+    cout << "Desencriptando archivo: " << archivoEntrada << " -> " << archivoSalida << endl;
+    cout << "Algoritmo: ChaCha20" << endl;
+    
+    // Derivar clave de 32 bytes desde el password usando SHA-256
+    uint8_t key[CHACHA20_KEY_SIZE];
+    SHA256::hash(password, key);
+    
+    // Desencriptar el archivo (el nonce se lee del archivo)
+    chacha20_decrypt_file(archivoEntrada, archivoSalida, key);
+    
+    // Limpiar la clave de la memoria por seguridad
+    memset(key, 0, CHACHA20_KEY_SIZE);
+    
+    cout << "Desencriptación completada." << endl;
+}
+
 void ejecutarOperacion(const Parametros& params) {
     try {
         cout << "Entrada: " << params.entrada << " -> Salida: " << params.salida << endl;
@@ -507,21 +550,73 @@ void ejecutarOperacion(const Parametros& params) {
         // Mira si es carpeta comprimida para descomprimir
         bool esCarpetaComprimida = S_ISREG(entryStat.st_mode) &&  params.entrada.find(".chupy") != string::npos && (params.descomprimir || params.desencriptarYDescomprimir) && params.salida.find(".") == string::npos;
 
-        if (esCarpetaComprimida) {
+        // ===== OPERACIONES COMBINADAS =====
+        if (params.comprimirYEncriptar) {
+            cout << "Detectado: Comprimir + Encriptar" << endl;
+            
+            // Crear archivo temporal para compresión
+            string archivoTemp = params.salida + ".temp.chupy";
+            
+            if (S_ISDIR(entryStat.st_mode)) {
+                // Comprimir carpeta
+                comprimirCarpeta(params.entrada, archivoTemp, params.algoritmoComp);
+            } else {
+                // Comprimir archivo
+                comprimirConDeflate(params.entrada, archivoTemp);
+            }
+            
+            // Encriptar el archivo comprimido
+            encriptarArchivo(archivoTemp, params.salida, params.clave);
+            
+            // Eliminar archivo temporal
+            unlink(archivoTemp.c_str());
+            
+        } else if (params.desencriptarYDescomprimir) {
+            cout << "Detectado: Desencriptar + Descomprimir" << endl;
+            
+            // Crear archivo temporal para desencriptación
+            string archivoTemp = params.entrada + ".temp.chupy";
+            
+            // Desencriptar primero
+            desencriptarArchivo(params.entrada, archivoTemp, params.clave);
+            
+            // Determinar si es carpeta o archivo
+            if (esCarpetaComprimida || params.salida.find(".") == string::npos) {
+                // Es carpeta
+                descomprimirCarpeta(archivoTemp, params.salida, params.algoritmoComp);
+            } else {
+                // Es archivo
+                descomprimirConDeflate(archivoTemp, params.salida);
+            }
+            
+            // Eliminar archivo temporal
+            unlink(archivoTemp.c_str());
+            
+        // ===== SOLO ENCRIPTACIÓN =====
+        } else if (params.encriptar) {
+            cout << "Detectado: Solo Encriptar" << endl;
+            encriptarArchivo(params.entrada, params.salida, params.clave);
+            
+        } else if (params.desencriptar) {
+            cout << "Detectado: Solo Desencriptar" << endl;
+            desencriptarArchivo(params.entrada, params.salida, params.clave);
+            
+        // ===== SOLO COMPRESIÓN =====
+        } else if (esCarpetaComprimida) {
             cout << "Detectado: archivo de carpeta comprimida" << endl;
             descomprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
         } else if (S_ISREG(entryStat.st_mode)) {
             cout << "Detectado: archivo" << endl;
-            if (params.comprimir || params.comprimirYEncriptar) {
+            if (params.comprimir) {
                 comprimirConDeflate(params.entrada, params.salida);
-            } else if (params.descomprimir || params.desencriptarYDescomprimir) {
+            } else if (params.descomprimir) {
                 descomprimirConDeflate(params.entrada, params.salida);
             }
         } else if (S_ISDIR(entryStat.st_mode)) {
             cout << "Detectado: carpeta" << endl;
-            if (params.comprimir || params.comprimirYEncriptar) {
+            if (params.comprimir) {
                 comprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
-            } else if (params.descomprimir || params.desencriptarYDescomprimir) {
+            } else if (params.descomprimir) {
                 descomprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
             }
         } else {
