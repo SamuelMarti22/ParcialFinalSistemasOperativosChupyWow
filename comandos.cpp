@@ -606,24 +606,80 @@ void ejecutarOperacion(const Parametros& params) {
             cout << "Detectado: archivo de carpeta comprimida" << endl;
             descomprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
         } else if (S_ISREG(entryStat.st_mode)) {
+        if (S_ISREG(entryStat.st_mode)) {
             cout << "Detectado: archivo" << endl;
-            if (params.comprimir) {
+            
+            if (params.comprimir || params.comprimirYEncriptar) {
                 comprimirConDeflate(params.entrada, params.salida);
-            } else if (params.descomprimir) {
-                descomprimirConDeflate(params.entrada, params.salida);
+            } 
+            else if (params.descomprimir || params.desencriptarYDescomprimir) {
+                // Verificar si es carpeta comprimida leyendo el header
+                if (params.entrada.find(".chupy") != string::npos) {
+                    // Leer el archivo para verificar si es contenedor de carpeta
+                    vector<uint8_t> datos = leerArchivoConSyscalls(params.entrada);
+                    
+                    // Intentar descomprimir y verificar si es contenedor
+                    string archivoTemp = params.salida + "_verification.bin";
+                    try {
+                        descomprimirConDeflate(params.entrada, archivoTemp);
+                        vector<uint8_t> descomprimido = leerArchivoConSyscalls(archivoTemp);
+                        
+                        // Verificar si tiene estructura de contenedor (primeros 4 bytes = número de archivos)
+                        bool esContenedor = false;
+                        if (descomprimido.size() >= 4) {
+                            uint32_t numArchivos = (static_cast<uint32_t>(descomprimido[0]) << 24) |
+                                                   (static_cast<uint32_t>(descomprimido[1]) << 16) |
+                                                   (static_cast<uint32_t>(descomprimido[2]) << 8) |
+                                                    static_cast<uint32_t>(descomprimido[3]);
+                            
+                            // Si el número es razonable (< 10000 archivos), podría ser un contenedor
+                            if (numArchivos > 0 && numArchivos < 10000) {
+                                try {
+                                    parsearContenedor(descomprimido);
+                                    esContenedor = true;
+                                } catch (...) {
+                                    esContenedor = false;
+                                }
+                            }
+                        }
+                        
+                        unlink(archivoTemp.c_str());
+                        
+                        if (esContenedor) {
+                            cout << "Detectado: archivo de carpeta comprimida" << endl;
+                            descomprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
+                        } else {
+                            cout << "Detectado: archivo individual comprimido" << endl;
+                            // Quitar extensión de salida si existe
+                            string salidaSinExt = params.salida;
+                            size_t pos = salidaSinExt.find_last_of('.');
+                            if (pos != string::npos) {
+                                salidaSinExt = salidaSinExt.substr(0, pos);
+                            }
+                            descomprimirConDeflate(params.entrada, salidaSinExt);
+                        }
+                    } catch (...) {
+                        unlink(archivoTemp.c_str());
+                        throw;
+                    }
+                } else {
+                    throw runtime_error("Error: Archivo no tiene extensión .chupy");
+                }
             }
-        } else if (S_ISDIR(entryStat.st_mode)) {
+        } 
+        else if (S_ISDIR(entryStat.st_mode)) {
             cout << "Detectado: carpeta" << endl;
             if (params.comprimir) {
                 comprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
-            } else if (params.descomprimir) {
-                descomprimirCarpeta(params.entrada, params.salida, params.algoritmoComp);
+            } else if (params.descomprimir || params.desencriptarYDescomprimir) {
+                throw runtime_error("Error: No puedes descomprimir una carpeta directamente");
             }
-        } else {
+        } 
+        else {
             throw runtime_error("Error: Tipo de entrada no soportado");
         }
 
-    } catch (const exception& e) {
+    }} catch (const exception& e) {
         cerr << "Error: " << e.what() << endl;
         exit(1);
     }

@@ -386,26 +386,26 @@ void chacha20_xor_file(const std::string& inputPath,
     std::fill(outBuf.begin(), outBuf.end(), 0);
 }
 
-// Convierte "A1b2..." -> bytes. Lanza si hay formato inválido.
-static std::vector<uint8_t> hex_to_bytes(const std::string& hex) {
-    auto hexval = [](char c) -> int {
-        if (c >= '0' && c <= '9') return c - '0';
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
-        return -1;
-    };
+// // Convierte "A1b2..." -> bytes. Lanza si hay formato inválido.
+// static std::vector<uint8_t> hex_to_bytes(const std::string& hex) {
+//     auto hexval = [](char c) -> int {
+//         if (c >= '0' && c <= '9') return c - '0';
+//         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+//         if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+//         return -1;
+//     };
 
-    if (hex.size() % 2 != 0) throw std::runtime_error("Hex con longitud impar");
+//     if (hex.size() % 2 != 0) throw std::runtime_error("Hex con longitud impar");
 
-    std::vector<uint8_t> out(hex.size() / 2);
-    for (size_t i = 0; i < out.size(); ++i) {
-        int hi = hexval(hex[2*i]);
-        int lo = hexval(hex[2*i + 1]);
-        if (hi < 0 || lo < 0) throw std::runtime_error("Hex no válido");
-        out[i] = static_cast<uint8_t>((hi << 4) | lo);
-    }
-    return out;
-}
+//     std::vector<uint8_t> out(hex.size() / 2);
+//     for (size_t i = 0; i < out.size(); ++i) {
+//         int hi = hexval(hex[2*i]);
+//         int lo = hexval(hex[2*i + 1]);
+//         if (hi < 0 || lo < 0) throw std::runtime_error("Hex no válido");
+//         out[i] = static_cast<uint8_t>((hi << 4) | lo);
+//     }
+//     return out;
+// }
 
 // ===== Funciones para derivar clave y leer password =====
 
